@@ -18,7 +18,7 @@ extend google.protobuf.FieldOptions {
 message MyMsg {
     bytes addr = 1 [ (soltype) = "address" ];
     uint32 num = 2 [ (soltype) = "uint8" ];
-	bool has_moon = 3;  // for matching native types, no need for soltype option
+    bool has_moon = 3;  // for matching native types, no need for soltype option
 }
 ```
 Check .proto files unter test folder for more examples.

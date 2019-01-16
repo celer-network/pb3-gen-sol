@@ -1,0 +1,14 @@
+i {
+  f1: 1
+}
+
+alist {
+  f1: 2
+}
+
+alist {
+  f1: 3
+}
+
+e: E0
+elist: [E0, E1]

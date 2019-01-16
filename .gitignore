@@ -1,0 +1,9 @@
+protoc-gen-sol
+
+# ignore generated pb and sol files
+test/*.pb
+test/solidity/contracts/lib/*.sol
+
+# solidity test gitignore
+test/solidity/node_modules/
+test/solidity/build/

@@ -1,0 +1,3 @@
+enum1: Type1
+enum2: Type2
+enums: [Type0, Type1, Type2]

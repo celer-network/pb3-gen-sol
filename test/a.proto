@@ -1,0 +1,11 @@
+syntax = "proto3";
+package a;
+
+message A {
+    uint64 f1 = 1;
+}
+
+enum MyEnum {
+    E0 = 0;
+    E1 = 1;
+}

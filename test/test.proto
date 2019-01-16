@@ -1,0 +1,62 @@
+// Must be proto3
+syntax = "proto3";
+// package name is used for both generated .sol file name and library name
+package mytest;
+// to extend FieldOptions, no effect on generated .sol file
+import "google/protobuf/descriptor.proto";
+
+// the keyword soltype must match generator.ExtKey
+// its type must be string. field number must be 1001 or larger and unique
+extend google.protobuf.FieldOptions {
+  string soltype = 54321;
+}
+
+// supported proto types: uint32, uint64, bool, bytes, string. this list is from
+// generator.pbType2Str keys. generated sol code has the same type.
+// supported soltype values: uint8, address, bytes32, uint256, uint
+// each value requires specific proto type, see generator.SolTypeMap
+// embedded msg is supported
+message Msg1 {  // only native types
+  uint32 f1 = 1;
+  uint64 f2 = 2;
+  bool f3 = 3;
+  bytes f4 = 4;
+  string f5 = 5;
+  repeated uint32 f6 = 6;
+  repeated uint64 f7 = 7;
+  repeated bool f8 = 8;
+  repeated bytes f9 = 9;
+  repeated string f10 = 10;
+}
+
+message Msg2 {  // use soltype
+  uint32 num = 1 [ (soltype) = "uint8" ];
+  bytes addr = 2 [ (soltype) = "address" ];
+  bytes amt = 3 [ (soltype) = "uint256" ];
+  bytes hash = 4 [ (soltype) = "bytes32" ];
+  repeated uint32 nums = 5 [ (soltype) = "uint8" ];
+  repeated bytes addrs = 6 [ (soltype) = "address" ];
+  repeated bytes amts = 7 [ (soltype) = "uint256" ];
+  repeated bytes hashes = 8 [ (soltype) = "bytes32" ];
+  uint64 ts = 9 [ (soltype) = "uint" ];
+  repeated uint64 tss = 10 [ (soltype) = "uint" ];
+}
+
+message Msg3 {  // embedded msgs
+  Msg1 m1 = 1;
+  Msg2 m2 = 2;
+  repeated Msg1 m1s = 3;
+  repeated Msg2 m2s = 4;
+}
+
+enum EnumExample {
+  Type0 = 0;
+  Type1 = 1;
+  Type2 = 2;
+}
+
+message Msg4 {
+  EnumExample enum1 = 1;
+  EnumExample enum2 = 2;
+  repeated EnumExample enums = 3;
+}

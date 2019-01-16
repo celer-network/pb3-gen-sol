@@ -1,0 +1,10 @@
+syntax = "proto3";
+package b;
+import "a.proto";
+
+message B {
+    a.A i = 1;
+    repeated a.A alist = 2;
+    a.MyEnum e = 3;
+    repeated a.MyEnum elist = 4;
+}

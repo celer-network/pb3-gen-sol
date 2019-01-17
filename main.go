@@ -8,7 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/celer-network/protoc-gen-sol/generator"
+	"github.com/celer-network/pb3-gen-sol/generator"
 	"github.com/golang/protobuf/proto"
 )
 

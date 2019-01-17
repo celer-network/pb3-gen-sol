@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/celer-network/gen-sol.svg?branch=master)](https://travis-ci.com/celer-network/gen-sol)
+[![Build Status](https://travis-ci.org/celer-network/pb3-gen-sol.svg?branch=master)](https://travis-ci.org/celer-network/pb3-gen-sol)
 # Overview
 
 pb3-gen-sol is a proto3 to solidity library generator that supports proto3 native types and uses field option for solidity native types. Both the message and generated code are more efficient than other solutions. It also includes a library to decode protobuf wireformat. Currently it generates decoders, with encoder support planned.

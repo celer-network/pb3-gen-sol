@@ -1,4 +1,6 @@
 protoc-gen-sol
+.vscode
+.DS_Store
 
 # ignore generated pb and sol files
 test/*.pb

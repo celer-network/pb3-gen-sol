@@ -46,7 +46,6 @@ Example:
 ## Kwown Issues
 - No support for int32/int64
 - Support embedded message/enum, but no nested message/enum definition
-- Only support one layer proto package
 
 # Contributors
 - [stevenlcf](https://github.com/stevenlcf)

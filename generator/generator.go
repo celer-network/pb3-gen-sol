@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,7 +34,7 @@ import (
 const ExtName = "soltype"
 
 // SolVer is the compatible solidity/solc version in pragma solidity
-const SolVer = ">=0.4.24;"
+const SolVer = "^0.5.0;"
 
 // string const for proto wire types
 const WireVarint = "Varint"
@@ -54,13 +55,14 @@ var PassTypeMap = map[string]string{
 
 // SolTypeMap is a map of solidity types as valid soltype option value
 // to required proto primitive type.
-// eg. a field can have (soltype) = "address", it must be defined as proto bytes
+// eg. a field can have (soltype) = "address payable", it must be defined as proto bytes
 var SolTypeMap = map[string]string{
-	"uint8":   "uint32",
-	"address": "bytes",
-	"bytes32": "bytes",
-	"uint256": "bytes",
-	"uint":    "uint64",
+	"uint8":           "uint32",
+	"address":         "bytes",
+	"address payable": "bytes",
+	"bytes32":         "bytes",
+	"uint256":         "bytes",
+	"uint":            "uint64",
 	// solidity uint is an alias to uint256. but we add our own schema to it.
 	// and only use uint256 for amount in wei. use uint for uint64 which could in theory save some gas.
 	// eg. proto type uint64, soltype uint. Note without uint soltype it also works, only a bit more gas.
@@ -92,7 +94,7 @@ type Generator struct {
 	Response      *plugin.CodeGeneratorResponse // The output.
 	indent        string
 	extnum        int32           // assigned field number eg. 1001 for ExtName
-	importpb      bool            // whether to include library pb in the generated .sol or import. if true, create import "pb.sol" in header
+	importpb      bool            // whether to include library Pb in the generated .sol or import. if true, create import "Pb.sol" in header
 	onlymsgs      map[string]bool // msg names specified by user in arg as whitelist, if not empty, only generate msg if it's in the list
 }
 
@@ -158,7 +160,7 @@ func (g *Generator) Preprocess() {
 func (g *Generator) ParseParams() {
 	// only support 2 args for now:
 	// msg=MsgA,msg=MsgB
-	// importpb=true/false (false is default), if true, will generate import "pb.sol" instead of having library pb in the generated .sol
+	// importpb=true/false (false is default), if true, will generate import "Pb.sol" instead of having library Pb in the generated .sol
 	// Note the param affects all .proto files
 	parameter := g.Request.GetParameter()
 	if len(parameter) == 0 {
@@ -190,7 +192,7 @@ func (g *Generator) GenerateAllFiles() {
 		}
 		g.Reset() // clear buffer
 		g.generate(f)
-		outfn := *f.Package + ".sol" // file name for generated .sol file
+		outfn := getSolFile(f.GetPackage()) // file name for generated .sol file
 		g.Response.File = append(g.Response.File, &plugin.CodeGeneratorResponse_File{
 			Name:    proto.String(outfn),
 			Content: proto.String(g.String()),
@@ -198,7 +200,7 @@ func (g *Generator) GenerateAllFiles() {
 	}
 	if g.importpb {
 		g.Response.File = append(g.Response.File, &plugin.CodeGeneratorResponse_File{
-			Name:    proto.String("pb.sol"),
+			Name:    proto.String("Pb.sol"),
 			Content: proto.String("pragma solidity " + SolVer + "\n" + ProtoSol),
 		})
 	}
@@ -215,7 +217,7 @@ func (g *Generator) generate(f fdes) {
 	curPkg = *f.Package
 	g.generateHeader(f)
 	g.In()
-	g.P("using pb for pb.Buffer;  // so we can call pb funcs on Buffer obj\n")
+	g.P("using Pb for Pb.Buffer;  // so we can call Pb funcs on Buffer obj\n")
 
 	// go over all top level enums
 	for _, enum := range f.EnumType {
@@ -241,15 +243,16 @@ func (g *Generator) generateHeader(f fdes) {
 	g.P("// source: ", f.Name)
 	g.P("pragma solidity ", SolVer)
 	if g.importpb {
-		g.P(`import "./pb.sol";`)
+		g.P(`import "./Pb.sol";`)
 	}
 	for _, i := range f.Dependency {
 		if i != "google/protobuf/descriptor.proto" {
-			g.P(`import "./`, strings.TrimSuffix(i, ".proto"), `.sol";`)
+			// require proto file name and package name are same
+			g.P(`import "./`, getSolFile(strings.TrimSuffix(i, ".proto")), `";`)
 		}
 	}
 	g.P()
-	g.P("library ", f.Package, " {")
+	g.P("library ", getSolLib(*f.Package), " {")
 }
 
 func (g *Generator) generateEnum(e enumdes) {
@@ -289,10 +292,10 @@ func (g *Generator) generateMsg(m msgdes) {
 	// go over fields and put decode string into tag2dec
 	for _, f := range m.Field {
 		t := getSolType(f, g.extnum)
-		g.P(t, " ", f.Name, ";", "   // tag: ", f.Number)
+		g.P(t, " ", toSolNaming(f.Name), ";", "   // tag: ", f.Number)
 		tag2dec[int(*f.Number)] = getSolDecodeStr(f, t)
 		if isRepeated(f) && (getWiretype(*f.Type) == WireLendel) {
-			needNew = append(needNew, fmt.Sprintf("m.%s = new %s(cnts[%d]);", *f.Name, t, *f.Number))
+			needNew = append(needNew, fmt.Sprintf("m.%s = new %s(cnts[%d]);", toSolNaming(f.Name), t, *f.Number))
 			needNew = append(needNew, fmt.Sprintf("cnts[%d] = 0;  // reset counter for later use", *f.Number))
 		}
 	}
@@ -305,7 +308,7 @@ func (g *Generator) generateMsg(m msgdes) {
 	// we use m for return struct name, saves us one g.P
 	g.P("function ", getDecFname(*m.Name), "(bytes memory raw) internal pure returns (", m.Name, " memory m) {")
 	g.In()
-	g.P("pb.Buffer memory buf = pb.fromBytes(raw);\n")
+	g.P("Pb.Buffer memory buf = Pb.fromBytes(raw);\n")
 	if len(needNew) > 1 { // some fields need to new
 		g.P(strings.Replace(needNew[0], "{MAX_TAG}", strconv.Itoa(stags[len(stags)-1]), 1)) // replace placeholder w/ actual max tag number
 		for _, s := range needNew[1:] {
@@ -314,7 +317,7 @@ func (g *Generator) generateMsg(m msgdes) {
 		g.P()
 	}
 	g.P("uint tag;")
-	g.P("pb.WireType wire;")
+	g.P("Pb.WireType wire;")
 	g.P("while (buf.hasMore()) {")
 	g.In()
 	g.P("(tag, wire) = buf.decKey();")
@@ -362,13 +365,13 @@ func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string) (co
 	// in proto3, repeated varints are default packed, we don't support option packed=false for now
 	isPacked := isRepeated(field) && wire == WireVarint
 	if isPacked {
-		// buf.decPacked return uint[], use pb.uintXXs to convert to uintXX[]
+		// buf.decPacked return uint[], use Pb.uintXXs to convert to uintXX[]
 		if soltype == "uint" {
-			code = fmt.Sprintf("m.%s = buf.decPacked();", *field.Name)
+			code = fmt.Sprintf("m.%s = buf.decPacked();", toSolNaming(field.Name))
 		} else if *field.Type == descriptor.FieldDescriptorProto_TYPE_ENUM {
-			code = fmt.Sprintf("m.%s = %ss(buf.decPacked());", *field.Name, soltype)
+			code = fmt.Sprintf("m.%s = %ss(buf.decPacked());", toSolNaming(field.Name), soltype)
 		} else {
-			code = fmt.Sprintf("m.%s = pb.%ss(buf.decPacked());", *field.Name, soltype)
+			code = fmt.Sprintf("m.%s = Pb.%ss(buf.decPacked());", toSolNaming(field.Name), soltype)
 		}
 		return
 	}
@@ -380,18 +383,20 @@ func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string) (co
 		// Example: m.enum = EnumName(buf.decVarint());
 	} else {
 		_, ok := SolTypeMap[soltype]
-		if (ok && wire == WireLendel) || soltype == "bool" {
-			soltype = "pb._" + soltype // if sol type like uint256, need special conv func in pb library
+		if soltype == "address payable" {
+			soltype = "Pb._addressPayable" // for address payable
+		} else if (ok && wire == WireLendel) || soltype == "bool" {
+			soltype = "Pb._" + soltype // if sol type like uint256, need special conv func in Pb library
 		}
 	}
 
 	decfun := fmt.Sprintf("%s(buf.dec%s())", soltype, wire)
 
 	if isRepeated(field) {
-		code = fmt.Sprintf("m.%s[cnts[%d]] = %s;\n", *field.Name, *field.Number, decfun)
+		code = fmt.Sprintf("m.%s[cnts[%d]] = %s;\n", toSolNaming(field.Name), *field.Number, decfun)
 		code += fmt.Sprintf("{XXX_INDENT}cnts[%d]++;", *field.Number)
 	} else {
-		code = fmt.Sprintf("m.%s = %s;", *field.Name, decfun)
+		code = fmt.Sprintf("m.%s = %s;", toSolNaming(field.Name), decfun)
 	}
 	return
 }
@@ -437,7 +442,7 @@ func getSolType(field *descriptor.FieldDescriptorProto, extnum int32) (s string)
 		if fqn[1] == curPkg { // within same package, use only msg/enum name
 			s = fqn[2]
 		} else {
-			s = fqn[1] + "." + fqn[2]
+			s = getSolLib(fqn[1]) + "." + fqn[2]
 		}
 		return
 	}
@@ -461,6 +466,37 @@ func getSolType(field *descriptor.FieldDescriptorProto, extnum int32) (s string)
 		}
 	}
 	return
+}
+
+// get solidity library name from proto package name
+// getSolLib("example") -> PbExample
+func getSolLib(pkg string) string {
+	if pkg == "" {
+		Fail("empty package name")
+	}
+	libname := "Pb"
+	cap := true
+	for _, v := range pkg {
+		if (v >= 'A' && v <= 'Z') || v >= '0' && v <= '9' {
+			libname += string(v)
+		} else if v >= 'a' && v <= 'z' {
+			if cap {
+				libname += strings.ToUpper(string(v))
+				cap = false
+			} else {
+				libname += string(v)
+			}
+		} else if v == '_' || v == '.' || v == '-' {
+			cap = true
+		}
+	}
+	return libname
+}
+
+// get solidity library name from proto package name
+// getSolFile("example") -> PbExample.sol
+func getSolFile(pkg string) string {
+	return getSolLib(pkg) + ".sol"
 }
 
 func getDecFname(name string) string {
@@ -512,10 +548,17 @@ func Fail(msgs ...string) {
 	os.Exit(1)
 }
 
+// toSolNaming transforms proto's naming style to solidity's, e.g. var_name_one to varNameOne
+func toSolNaming(name *string) string {
+	var re = regexp.MustCompile(`_[a-z]`)
+	s := re.ReplaceAllStringFunc(*name, func(m string) string { return strings.ToUpper(m[1:]) })
+	return s
+}
+
 // ProtoSol is the full proto library, appended in the end of generated .sol file
 const ProtoSol = `
 // runtime proto sol library
-library pb {
+library Pb {
     enum WireType { Varint, Fixed64, LengthDelim, StartGroup, EndGroup, Fixed32 }
     struct Buffer {
         uint idx;  // the start index of next read. when idx=b.length, we're done
@@ -523,7 +566,7 @@ library pb {
     }
     // create a new in-memory Buffer object from raw msg bytes
     function fromBytes(bytes memory raw) internal pure returns (Buffer memory buf) {
-        require(raw.length > 1); // min length of a valid pb msg is 2
+        require(raw.length > 1); // min length of a valid Pb msg is 2
         buf.b = raw;
         buf.idx = 0;
     }
@@ -554,17 +597,17 @@ library pb {
     }
     // read varint from current buf idx, move buf.idx to next read, return the int value
     function decVarint(Buffer memory buf) internal pure returns (uint v) {
-        bytes8 tmp;  // proto int is at most 8 bytes
+        bytes10 tmp;  // proto int is at most 10 bytes (7 bits can be used per byte)
         bytes memory bb = buf.b;  // get buf.b mem addr to use in assembly
         v = buf.idx;  // use v to save one additional uint variable
         assembly {
-            tmp := mload(add(add(bb, 32), v)) // load 8 bytes from buf.b[buf.idx] to tmp
+            tmp := mload(add(add(bb, 32), v)) // load 10 bytes from buf.b[buf.idx] to tmp
         }
         uint b; // store current byte content
         v = 0; // reset to 0 for return value
-        for (uint i=0; i<8; ++i) {
+        for (uint i=0; i<10; ++i) {
             assembly {
-                b := byte(i, tmp)  // tmp[i] does bound check, costs extra
+                b := byte(i, tmp)  // don't use tmp[i] because it does bound check and costs extra
             }
             v |= (b & 0x7F) << (i * 7);
             if (b & 0x80 == 0) {
@@ -572,7 +615,7 @@ library pb {
                 return v;
             }
         }
-        revert(); //i=8, invalid varint stream
+        revert(); // i=10, invalid varint stream
     }
     // read length delimited field and return bytes
     function decBytes(Buffer memory buf) internal pure returns (bytes memory b) {
@@ -588,8 +631,8 @@ library pb {
             bufBStart := add(add(bufB, 32), bufBStart)
         }
         for (uint i=0; i<len; i+=32) {
-            assembly{ 
-                mstore(add(bStart, i), mload(add(bufBStart, i))) 
+            assembly{
+                mstore(add(bStart, i), mload(add(bufBStart, i)))
             }
         }
         buf.idx = end;
@@ -618,7 +661,7 @@ library pb {
         if (wire == WireType.Varint) { decVarint(buf); }
         else if (wire == WireType.LengthDelim) {
             uint len = decVarint(buf);
-            buf.idx += len; // skip len bytes value data	
+            buf.idx += len; // skip len bytes value data
             require(buf.idx <= buf.b.length);  // avoid overflow
         } else { revert(); }  // unsupported wiretype
     }
@@ -630,8 +673,11 @@ library pb {
     function _uint256(bytes memory b) internal pure returns (uint256 v) {
         assembly { v := mload(add(b, 32)) }  // load all 32bytes to v
         v = v >> (8 * (32 - b.length));  // only first b.length is valid
+	}
+	function _address(bytes memory b) internal pure returns (address v) {
+        v = _addressPayable(b);
     }
-    function _address(bytes memory b) internal pure returns (address v) {
+    function _addressPayable(bytes memory b) internal pure returns (address payable v) {
         require(b.length == 20);
 
         //load 32bytes then shift right 12 bytes

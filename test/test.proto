@@ -2,13 +2,14 @@
 syntax = "proto3";
 // package name is used for both generated .sol file name and library name
 package mytest;
-// to extend FieldOptions, no effect on generated .sol file
+// next is a special case to extend FieldOptions, no effect on generated .sol file
 import "google/protobuf/descriptor.proto";
 
 // the keyword soltype must match generator.ExtKey
 // its type must be string. field number must be 1001 or larger and unique
+// if in the future we support other lang, add another xxxtype = 1002;
 extend google.protobuf.FieldOptions {
-  string soltype = 54321;
+  string soltype = 1001;
 }
 
 // supported proto types: uint32, uint64, bool, bytes, string. this list is from
@@ -32,14 +33,16 @@ message Msg1 {  // only native types
 message Msg2 {  // use soltype
   uint32 num = 1 [ (soltype) = "uint8" ];
   bytes addr = 2 [ (soltype) = "address" ];
-  bytes amt = 3 [ (soltype) = "uint256" ];
-  bytes hash = 4 [ (soltype) = "bytes32" ];
-  repeated uint32 nums = 5 [ (soltype) = "uint8" ];
-  repeated bytes addrs = 6 [ (soltype) = "address" ];
-  repeated bytes amts = 7 [ (soltype) = "uint256" ];
-  repeated bytes hashes = 8 [ (soltype) = "bytes32" ];
-  uint64 ts = 9 [ (soltype) = "uint" ];
-  repeated uint64 tss = 10 [ (soltype) = "uint" ];
+  bytes addr_payable = 3 [ (soltype) = "address payable" ];
+  bytes amt = 4 [ (soltype) = "uint256" ];
+  bytes hash = 5 [ (soltype) = "bytes32" ];
+  repeated uint32 nums = 6 [ (soltype) = "uint8" ];
+  repeated bytes addrs = 7 [ (soltype) = "address" ];
+  repeated bytes addr_payables = 8 [ (soltype) = "address payable" ];
+  repeated bytes amts = 9 [ (soltype) = "uint256" ];
+  repeated bytes hashes = 10 [ (soltype) = "bytes32" ];
+  uint64 ts = 11 [ (soltype) = "uint" ];
+  repeated uint64 tss = 12 [ (soltype) = "uint" ];
 }
 
 message Msg3 {  // embedded msgs

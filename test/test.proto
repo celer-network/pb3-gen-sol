@@ -2,7 +2,6 @@
 syntax = "proto3";
 // package name is used for both generated .sol file name and library name
 package mytest;
-// NO support to import other proto files.
 // next is a special case to extend FieldOptions, no effect on generated .sol file
 import "google/protobuf/descriptor.proto";
 

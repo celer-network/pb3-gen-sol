@@ -5,12 +5,7 @@ language: go
 go:
   - "1.11.x"
 env:
-  global:
-    - GO111MODULE=on
-    - LDFLAG="-X main.version=${TRAVIS_TAG} -X main.commit=${TRAVIS_COMMIT::6}"
-  matrix:
-    - TRUFFLE_VERSION=truffle  # latest truffle with solidity v0.5.x
-    - TRUFFLE_VERSION=truffle@4.1.14  # truffle@4.1.14 with solidity v0.4.x
+  - GO111MODULE=on LDFLAG="-X main.version=${TRAVIS_TAG} -X main.commit=${TRAVIS_COMMIT::6}"
 
 cache:
   directories:
@@ -26,19 +21,14 @@ install:
   # install npm packages
   - pushd test/solidity
   - npm install
-  - npm install -g "$TRUFFLE_VERSION"
-  - npm install -g ganache-cli
+  - npm install -g truffle
   - popd
   
 before_script:
-  - go build -ldflags "$LDFLAG" -o protoc-gen-sol
-  - pushd test
+  - go build -ldflags "$LDFLAG"
+  - cd test
   - bash generate_sol_pb.sh
-  - popd
   
 script:
-  - ganache-cli 2> /dev/null 1> /dev/null &
-  - pushd test/solidity
+  - cd solidity
   - truffle test
-  - kill -9 $(lsof -t -i:8545)
-  - popd

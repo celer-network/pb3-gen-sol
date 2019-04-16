@@ -568,7 +568,6 @@ library Pb {
 
     // create a new in-memory Buffer object from raw msg bytes
     function fromBytes(bytes memory raw) internal pure returns (Buffer memory buf) {
-        require(raw.length > 1); // min length of a valid Pb msg is 2
         buf.b = raw;
         buf.idx = 0;
     }

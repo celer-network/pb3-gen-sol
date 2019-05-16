@@ -22,7 +22,7 @@ message MyMsg {
     bool has_moon = 3;  // for matching native types, no need for soltype option
 }
 ```
-Check .proto files unter test folder for more examples.
+Check .proto files under test folder for more examples.
 
 ### Generate solidity library
 Run

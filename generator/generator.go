@@ -34,7 +34,7 @@ import (
 const ExtName = "soltype"
 
 // SolVer is the compatible solidity/solc version in pragma solidity
-const SolVer = "^0.5.0;"
+const SolVer = ">=0.5.0;"
 
 // string const for proto wire types
 const WireVarint = "Varint"

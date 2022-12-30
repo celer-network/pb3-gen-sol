@@ -3,7 +3,7 @@
     "fs": "0.0.1-security",
     "npm": "^6.14.6",
     "protobufjs": "^6.8.8",
-    "truffle-hdwallet-provider": "^0.0.5",
+    "truffle-hdwallet-provider": "^1.0.17",
     "web3": "^1.0.0-beta.54"
   },
   "devDependencies": {

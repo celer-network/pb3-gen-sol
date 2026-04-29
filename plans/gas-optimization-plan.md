@@ -25,7 +25,26 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [x] The modernization prerequisites are in place: the runtime hardening fixes landed, Foundry is the default Solidity test runner, and CI already checks regeneration and Forge validation.
 - [x] The first obvious packed-field win already landed: `decPacked` now uses a single allocation plus in-place length shrink instead of allocating and copying twice.
 - [x] Additional negative-path guardrails were added for malformed packed varints, invalid wire types, and empty repeated nested messages.
-- [ ] The next gas work should start with a benchmark harness and then a hardened-but-faster `decVarint`, which the review identified as the hottest remaining runtime path.
+- [x] Foundry benchmark harness landed at [test/solidity/test/bench/](../test/solidity/test/bench/), pairing the current runtime against a frozen `agent-pay-contracts` snapshot. Baselines captured in [benchmarks/baseline.md](./benchmarks/baseline.md).
+- [x] Hardened-fast `decVarint` landed 2026-04-29. Every path is now 12–14% faster than the legacy `Old` runtime; +1.4% aggregate regression replaced with a −12.7% aggregate improvement.
+- [ ] Next: fixed-width readers for `address` / `bytes32` / bytes-backed `uint256` (Phase 1 §2).
+
+## Findings From The 2026-04 Baseline
+
+The first measurement against the frozen `agent-pay-contracts` runtime reshapes
+this plan in concrete ways. See [benchmarks/baseline.md](./benchmarks/baseline.md) for the table.
+
+- **The overall gap is small (~1.4% across all paths, max +2.78%).** The runtime hardening tax is real but bounded.
+- **`decConditionalPay` carries most of the regression** (+1,594 gas, +2.78%). Its repeated nested submessages and varint-heavy primitive fields compound the per-byte `decVarint` cost. The end-to-end `ResolvePayRequest → ConditionalPay` path inherits the same gap (+1,680 gas). Treat these as the headline targets.
+- **Two paths are slightly *faster* on the new runtime** (`decSimplexPaymentChannel`, `decSignedSimplexState + decSimplex`). The deltas are tiny and most likely incidental code-shape effects from the recent generator cleanups.
+- **Fixed-width reader savings are likely smaller than originally hypothesized.** A back-of-envelope count for `decConditionalPay` puts the per-allocate-and-discard `bytes` cost at roughly 50–60 gas per fixed-width field, versus per-byte `decVarint` overhead at roughly 10–25 gas per *byte* applied to ~100 varint reads. The varint overhead dominates.
+- **`cntTags` is paying for two full passes.** The pre-pass counts tags and skips values; the actual decode reads the same data again. For messages with many fields and nested submessages, this doubles every varint cost. Phase 3 §8 still applies, but it's worth keeping in mind that `decVarint` improvements compound here.
+
+These findings keep the suggested execution order (varint first, then fixed-width readers), but recalibrate expectations:
+
+- `decVarint` rework is "close the gap" (target: net-zero or better vs `Old`), not "step change."
+- Fixed-width readers are still worthwhile but should be sized at low single-digit-percent improvement on heavy paths, not double-digit.
+- Any work that touches `cntTags` (now or in Phase 3) should re-benchmark against this baseline because varint cost flows through it.
 
 ## Current Hotspots
 
@@ -33,7 +52,7 @@ These are the main sources of avoidable gas in the current design.
 
 - `decVarint` is on the hottest path of nearly every decode operation.
   - It is used by `decKey`, primitive numeric fields, length prefixes, `cntTags`, and packed repeated values.
-  - The current byte-by-byte safe loop is correct, but it is materially slower than the older single-`mload` style path the review compared against.
+  - The current byte-by-byte safe loop is correct, but the baseline measurement attributes the bulk of the +1.4% aggregate regression to it. Closing the gap likely requires rewriting it.
 
 - `bytes calldata` inputs are decoded through `bytes memory` APIs.
   - Downstream contracts already take external calldata payloads.
@@ -65,16 +84,15 @@ The first benchmark wave should focus on the actual Celer message shapes that ma
 
 These cover nested messages, repeated fields, signatures, opaque bytes blobs, and field subsets used by on-chain resolution and ledger flows.
 
-## Measurement First
+## Measurement
 
-No gas optimization work should start without a benchmark harness.
-
-- [ ] Add a Foundry benchmark suite for representative decode paths.
-- [ ] Measure both calldata size and gas used by decode-heavy entrypoints.
-- [ ] Include an `abi.encode` / `abi.decode` comparison harness for logically equivalent structs where feasible.
-- [ ] Store baseline numbers in the repo so each optimization PR can show deltas.
-- [ ] Add CI reporting for benchmark diffs once the harness stabilizes.
-- [ ] Capture a baseline before any `decVarint` rewrite so safety and gas can be compared against the current hardened implementation.
+- [x] Foundry benchmark suite for representative decode paths.
+- [x] Decode-only gas captured for each path; payload byte counts recorded alongside.
+- [x] Old-vs-new comparison against the frozen `agent-pay-contracts` runtime included in the same suite.
+- [x] Baseline numbers stored in [benchmarks/baseline.md](./benchmarks/baseline.md) for delta tracking.
+- [x] Baseline captured before any `decVarint` rewrite so safety and gas can be compared.
+- [ ] `abi.encode` / `abi.decode` comparison harness for logically equivalent structs (deferred — not blocking).
+- [ ] CI reporting for benchmark diffs once the harness stabilizes (deferred — needs a few more PRs to settle).
 
 ## Suggested Success Criteria
 
@@ -95,21 +113,27 @@ These items were previously candidates for the gas workstream but are no longer 
 
 These changes should be considered first because they are localized and do not require redesigning the public decode API.
 
-### 1. Re-introduce a hardened fast path for `decVarint`
+### 1. Re-introduce a hardened fast path for `decVarint` — **landed 2026-04-29**
 
-- [ ] Prototype a `decVarint` implementation that keeps the current malformed-input behavior but reduces per-byte overhead.
-- [ ] Benchmark at least one explicit-bounds assembly-assisted path against the current implementation.
-- [ ] Preserve deterministic reverts for truncated varints, malformed packed varints, and invalid wire-type cases.
-- [ ] Keep the implementation readable enough that future runtime audits remain practical.
+- [x] Prototype a `decVarint` implementation that keeps the current malformed-input behavior but reduces per-byte overhead.
+- [x] Benchmark at least one explicit-bounds assembly-assisted path against the current implementation.
+- [x] Preserve deterministic reverts for truncated varints, malformed packed varints, and invalid wire-type cases.
+- [x] Keep the implementation readable enough that future runtime audits remain practical.
 
-Why this matters:
+What landed:
 
-- The review correctly identified `decVarint` as the hottest function in the runtime.
-- Every meaningful decode path hits it repeatedly, so even a constant-factor improvement here should have a visible impact.
+- Replaced per-iteration `bb[buf.idx]` Solidity index access (carrying an implicit bounds check, a `bytes1` → `uint8` conversion, and per-access pointer arithmetic) with inline `byte(0, mload(add(dataPtr, idx)))` after an explicit `require(idx < len)`.
+- Hoisted `buf.idx` and `bb.length` to local variables so the loop reads each only once.
+- Made the per-iteration increment `unchecked`.
+- Two `assembly ("memory-safe")` blocks — one to cache the data pointer, one for the byte read.
 
-Expected impact:
+Result vs the 2026-04-28 baseline (full table in [benchmarks/baseline.md](./benchmarks/baseline.md)):
 
-- Medium to large improvement across most decode-heavy paths.
+- Every measured path is now 12–14% faster than the legacy hand-tuned `Old` runtime — not just at parity.
+- Aggregate decode gas across the 7 representative paths dropped 33,921 (−12.7%) vs `Old`, 37,674 (−13.9%) vs the previous `New`.
+- All 32 tests stay green; every malformed-input path still reverts deterministically.
+
+Why the win was bigger than predicted: Solidity's `bytes` index access is ~30–40 gas per byte (the implicit bounds check, conversion, and pointer math compound). With ~100 varint bytes consumed per `decConditionalPay` decode, eliminating that cost matches the observed 7,154-gas saving on that path almost exactly.
 
 ### 2. Add fixed-width readers for bytes-backed primitives
 
@@ -274,8 +298,8 @@ Why this matters:
 
 ## Suggested Execution Order
 
-- [ ] 1. Build the benchmark harness and record baselines.
-- [ ] 2. Rework `decVarint` with benchmarked hardened fast paths.
+- [x] 1. Build the benchmark harness and record baselines.
+- [x] 2. Rework `decVarint` with benchmarked hardened fast paths.
 - [ ] 3. Implement fixed-width readers and wire them into codegen.
 - [ ] 4. Apply small runtime loop cleanups that show clear benchmark wins.
 - [ ] 5. Prototype a calldata-native runtime path and measure it.

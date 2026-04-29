@@ -62,12 +62,31 @@ library PbNew {
     // read varint from current buf idx, move buf.idx to next read, return the int value
     function decVarint(Buffer memory buf) internal pure returns (uint256 v) {
         bytes memory bb = buf.b;
+        uint256 idx = buf.idx;
+        uint256 len = bb.length;
+        // Cache the bytes data pointer once. Solidity's `bb[idx]` would re-derive
+        // it and run an implicit bounds check every iteration; the inline mload
+        // plus explicit `idx < len` check below is the same safety with less per-
+        // byte overhead.
+        uint256 dataPtr;
+        assembly ("memory-safe") {
+            dataPtr := add(bb, 32)
+        }
         for (uint256 i = 0; i < 10; i++) {
-            require(buf.idx < bb.length);
-            uint8 b = uint8(bb[buf.idx]);
-            buf.idx++;
-            v |= uint256(b & 0x7F) << (i * 7);
+            require(idx < len);
+            uint256 b;
+            assembly ("memory-safe") {
+                // mload reads 32 bytes; we only consume byte 0 (idx itself), and
+                // idx < len guarantees that byte is within the buffer. Bytes 1..31
+                // may sit past the buffer's data but are never used.
+                b := byte(0, mload(add(dataPtr, idx)))
+            }
+            unchecked {
+                idx++;
+            }
+            v |= (b & 0x7F) << (i * 7);
             if (b < 0x80) {
+                buf.idx = idx;
                 return v;
             }
         }

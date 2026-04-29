@@ -79,7 +79,7 @@ func TestGeneratorFixtures(t *testing.T) {
 		"pragma solidity >=0.8.0;",
 		"Provides the `Buffer` cursor type and primitive decode helpers used by",
 		"if (tag > 0 && tag <= maxtag) {",
-		"require(buf.idx < bb.length);",
+		"require(idx < len);",
 		"require(b.length <= 32);",
 	} {
 		if !strings.Contains(pbRuntime, want) {

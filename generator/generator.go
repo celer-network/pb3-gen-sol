@@ -435,34 +435,53 @@ func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string) (co
 		}
 		return
 	}
-	// additional optimization can be done to only cast if soltype != decXXX native types
+	var decfun string
 	if *field.Type == descriptor.FieldDescriptorProto_TYPE_MESSAGE {
-		soltype = getDecFname(soltype) // use decMsg for msg decoder
+		decfun = fmt.Sprintf("%s(buf.decBytes())", getDecFname(soltype))
 	} else if *field.Type == descriptor.FieldDescriptorProto_TYPE_ENUM {
-		// ENUM only needs an explicit conversion, so it doesn't need to change soltype at all
+		// ENUM needs an explicit cast from uint256.
 		// Example: m.enum = EnumName(buf.decVarint());
+		decfun = fmt.Sprintf("%s(buf.decVarint())", soltype)
+	} else if wire == WireLendel && fixedWidthReader(soltype) != "" {
+		// Bytes-backed soltype overrides skip the intermediate `bytes`
+		// allocation by reading directly into the target type. See
+		// `decAddress` / `decBytes32` / `decUint256` in the runtime.
+		decfun = fixedWidthReader(soltype)
+	} else if soltype == "bool" {
+		decfun = "Pb._bool(buf.decVarint())"
+	} else if (soltype == "uint" && wire == WireVarint) || (soltype == "bytes" && wire == WireLendel) {
+		decfun = fmt.Sprintf("buf.dec%s()", wire)
 	} else {
-		_, ok := SolTypeMap[soltype]
-		if soltype == "address payable" {
-			soltype = "Pb._addressPayable" // for address payable
-		} else if (ok && wire == WireLendel) || soltype == "bool" {
-			soltype = "Pb._" + soltype // if sol type like uint256, need special conv func in Pb library
-		}
-	}
-
-	decodeCall := fmt.Sprintf("buf.dec%s()", wire)
-	decfun := decodeCall
-	if !((soltype == "uint" && wire == WireVarint) || (soltype == "bytes" && wire == WireLendel)) {
-		decfun = fmt.Sprintf("%s(%s)", soltype, decodeCall)
+		// Native primitive cast: `uintN(buf.decVarint())`, `string(buf.decBytes())`, etc.
+		decfun = fmt.Sprintf("%s(buf.dec%s())", soltype, wire)
 	}
 
 	if isRepeated(field) {
 		code = fmt.Sprintf("m.%s[cnts[%d]] = %s;\n", toSolNaming(field.Name), *field.Number, decfun)
-		code += fmt.Sprintf("{XXX_INDENT}cnts[%d]++;", *field.Number)
+		// cnts[N] is bounded by cntTags' first-pass count, which is bounded by
+		// the payload size, so the unchecked increment is safe.
+		code += fmt.Sprintf("{XXX_INDENT}unchecked { cnts[%d]++; }", *field.Number)
 	} else {
 		code = fmt.Sprintf("m.%s = %s;", toSolNaming(field.Name), decfun)
 	}
 	return
+}
+
+// fixedWidthReader returns the Pb runtime helper that decodes a length-
+// delimited bytes-backed soltype directly into the target Solidity type,
+// bypassing an intermediate `bytes` allocation. Empty result means there
+// is no fixed-width reader for this soltype; the caller falls back to the
+// generic `decBytes` path.
+func fixedWidthReader(soltype string) string {
+	switch soltype {
+	case "address", "address payable":
+		return "buf.decAddress()"
+	case "bytes32":
+		return "buf.decBytes32()"
+	case "uint256":
+		return "buf.decUint256()"
+	}
+	return ""
 }
 
 // wiretype string, WireVarint or WireLendel

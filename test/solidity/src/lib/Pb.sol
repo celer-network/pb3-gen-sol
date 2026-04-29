@@ -52,7 +52,11 @@ library Pb {
         while (hasMore(buf)) {
             (tag, wire) = decKey(buf);
             if (tag > 0 && tag <= maxtag) {
-                cnts[tag] += 1;
+                // Per-tag count is bounded by payload length, which is bounded
+                // by gas — overflow is unreachable.
+                unchecked {
+                    cnts[tag] += 1;
+                }
             }
             skipValue(buf, wire);
         }
@@ -72,22 +76,26 @@ library Pb {
         assembly ("memory-safe") {
             dataPtr := add(bb, 32)
         }
-        for (uint256 i = 0; i < 10; i++) {
-            require(idx < len);
-            uint256 b;
-            assembly ("memory-safe") {
-                // mload reads 32 bytes; we only consume byte 0 (idx itself), and
-                // idx < len guarantees that byte is within the buffer. Bytes 1..31
-                // may sit past the buffer's data but are never used.
-                b := byte(0, mload(add(dataPtr, idx)))
-            }
-            unchecked {
+        // The loop is wrapped in `unchecked` because every arithmetic op inside
+        // is bounded: `i` runs 0..9, `idx` is bounded by `len` via the require,
+        // and `(i * 7)` peaks at 63. The explicit `require(idx < len)` retains
+        // the truncation revert.
+        unchecked {
+            for (uint256 i = 0; i < 10; ++i) {
+                require(idx < len);
+                uint256 b;
+                assembly ("memory-safe") {
+                    // mload reads 32 bytes; we only consume byte 0 (idx itself), and
+                    // idx < len guarantees that byte is within the buffer. Bytes 1..31
+                    // may sit past the buffer's data but are never used.
+                    b := byte(0, mload(add(dataPtr, idx)))
+                }
                 idx++;
-            }
-            v |= (b & 0x7F) << (i * 7);
-            if (b < 0x80) {
-                buf.idx = idx;
-                return v;
+                v |= (b & 0x7F) << (i * 7);
+                if (b < 0x80) {
+                    buf.idx = idx;
+                    return v;
+                }
             }
         }
         revert(); // i=10, invalid varint stream
@@ -102,13 +110,18 @@ library Pb {
         bytes memory bufB = buf.b; // get buf.b mem addr to use in assembly
         uint256 bStart;
         uint256 bufBStart = buf.idx;
-        assembly {
+        assembly ("memory-safe") {
             bStart := add(b, 32)
             bufBStart := add(add(bufB, 32), bufBStart)
         }
-        for (uint256 i = 0; i < len; i += 32) {
-            assembly {
+        // i is bounded by len (≤ payload size); the trailing partial-word write
+        // stays within `b`'s 32-byte-padded allocation. unchecked is safe.
+        for (uint256 i = 0; i < len;) {
+            assembly ("memory-safe") {
                 mstore(add(bStart, i), mload(add(bufBStart, i)))
+            }
+            unchecked {
+                i += 32;
             }
         }
         buf.idx = end;
@@ -125,7 +138,9 @@ library Pb {
         uint256 i = 0; // count how many ints are there
         while (buf.idx < end) {
             t[i] = decVarint(buf);
-            i++;
+            unchecked {
+                i++;
+            }
         }
         assembly ("memory-safe") {
             mstore(t, i)
@@ -150,53 +165,106 @@ library Pb {
         return x != 0;
     }
 
-    function _uint256(bytes memory b) internal pure returns (uint256 v) {
-        require(b.length <= 32);
-        assembly { v := mload(add(b, 32)) } // load all 32bytes to v
-        v = v >> (8 * (32 - b.length)); // only first b.length is valid
+    // Fixed-width length-delimited readers. Each one reads its own varint
+    // length prefix from `buf`, validates the length, mloads the payload
+    // directly into the target type, and advances `buf.idx`. Saves the
+    // intermediate `bytes` allocation that `decBytes` + a helper conversion
+    // would otherwise pay.
+
+    // Read a length-delimited field of exactly 20 bytes as an address.
+    // Returns `address payable` so the same call can be used for both
+    // `address` and `address payable` schema fields (Solidity allows the
+    // implicit `address payable` → `address` direction on assignment).
+    function decAddress(Buffer memory buf) internal pure returns (address payable v) {
+        uint256 len = decVarint(buf);
+        require(len == 20);
+        uint256 idx = buf.idx;
+        require(idx + 20 <= buf.b.length);
+        bytes memory bb = buf.b;
+        assembly ("memory-safe") {
+            // address occupies the high-order 20 bytes of the loaded word; shr
+            // by 96 bits drops the trailing 12 bytes of (possibly past-buffer)
+            // memory which are never used.
+            v := shr(96, mload(add(add(bb, 32), idx)))
+        }
+        buf.idx = idx + 20;
     }
 
-    function _address(bytes memory b) internal pure returns (address v) {
-        v = _addressPayable(b);
+    // Read a length-delimited field of exactly 32 bytes as bytes32.
+    function decBytes32(Buffer memory buf) internal pure returns (bytes32 v) {
+        uint256 len = decVarint(buf);
+        require(len == 32);
+        uint256 idx = buf.idx;
+        require(idx + 32 <= buf.b.length);
+        bytes memory bb = buf.b;
+        assembly ("memory-safe") {
+            v := mload(add(add(bb, 32), idx))
+        }
+        buf.idx = idx + 32;
     }
 
-    function _addressPayable(bytes memory b) internal pure returns (address payable v) {
-        require(b.length == 20);
-        //load 32bytes then shift right 12 bytes
-        assembly { v := div(mload(add(b, 32)), 0x1000000000000000000000000) }
-    }
-
-    function _bytes32(bytes memory b) internal pure returns (bytes32 v) {
-        require(b.length == 32);
-        assembly { v := mload(add(b, 32)) }
+    // Read a length-delimited field of <= 32 bytes as a big-endian uint256.
+    // This mirrors the existing soltype="uint256" wire shape: leading-zero
+    // bytes are stripped on the wire, so we right-shift the loaded word by
+    // (32 - len) bytes to align the value into the low-order bits.
+    function decUint256(Buffer memory buf) internal pure returns (uint256 v) {
+        uint256 len = decVarint(buf);
+        require(len <= 32);
+        uint256 idx = buf.idx;
+        uint256 end = idx + len;
+        require(end <= buf.b.length);
+        bytes memory bb = buf.b;
+        // For len == 0 the EVM `shr` opcode returns 0 (shift >= 256 is
+        // defined as zero). buf.idx is unchanged in that case, which matches
+        // the proto3 default-zero semantics for an empty bytes field.
+        assembly ("memory-safe") {
+            v := shr(mul(sub(32, len), 8), mload(add(add(bb, 32), idx)))
+        }
+        buf.idx = end;
     }
 
     // uint[] to uint8[]
     function uint8s(uint256[] memory arr) internal pure returns (uint8[] memory t) {
-        t = new uint8[](arr.length);
-        for (uint256 i = 0; i < t.length; i++) {
+        uint256 n = arr.length;
+        t = new uint8[](n);
+        for (uint256 i = 0; i < n;) {
             t[i] = uint8(arr[i]);
+            unchecked {
+                ++i;
+            }
         }
     }
 
     function uint32s(uint256[] memory arr) internal pure returns (uint32[] memory t) {
-        t = new uint32[](arr.length);
-        for (uint256 i = 0; i < t.length; i++) {
+        uint256 n = arr.length;
+        t = new uint32[](n);
+        for (uint256 i = 0; i < n;) {
             t[i] = uint32(arr[i]);
+            unchecked {
+                ++i;
+            }
         }
     }
 
     function uint64s(uint256[] memory arr) internal pure returns (uint64[] memory t) {
-        t = new uint64[](arr.length);
-        for (uint256 i = 0; i < t.length; i++) {
+        uint256 n = arr.length;
+        t = new uint64[](n);
+        for (uint256 i = 0; i < n;) {
             t[i] = uint64(arr[i]);
+            unchecked {
+                ++i;
+            }
         }
     }
 
     function bools(uint256[] memory arr) internal pure returns (bool[] memory t) {
-        t = new bool[](arr.length);
-        for (uint256 i = 0; i < t.length; i++) {
+        uint256 n = arr.length;
+        t = new bool[](n);
+        for (uint256 i = 0; i < n;) {
             t[i] = arr[i] != 0;
+            unchecked {
+                ++i;
+            }
         }
     }
 }

@@ -27,7 +27,9 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [x] Additional negative-path guardrails were added for malformed packed varints, invalid wire types, and empty repeated nested messages.
 - [x] Foundry benchmark harness landed at [test/solidity/test/bench/](../test/solidity/test/bench/), pairing the current runtime against a frozen `agent-pay-contracts` snapshot. Baselines captured in [benchmarks/baseline.md](./benchmarks/baseline.md).
 - [x] Hardened-fast `decVarint` landed 2026-04-29. Every path is now 12–14% faster than the legacy `Old` runtime; +1.4% aggregate regression replaced with a −12.7% aggregate improvement.
-- [ ] Next: fixed-width readers for `address` / `bytes32` / bytes-backed `uint256` (Phase 1 §2).
+- [x] Fixed-width readers (`decAddress` / `decBytes32` / `decUint256`) landed 2026-04-29. Cumulative −18.9% aggregate vs `Old`; every path 16–25% faster than legacy.
+- [x] Runtime loop `unchecked` cleanup landed 2026-04-29. Cumulative **−31.7% aggregate vs `Old`**; every path 30–37% faster than legacy.
+- [ ] Phase 1 is effectively complete. Further wins require structural changes (Phase 2/3); evaluate `cntTags` single-pass (Phase 3 §8) or calldata-native decoding (Phase 2 §5) next.
 
 ## Findings From The 2026-04 Baseline
 
@@ -135,36 +137,46 @@ Result vs the 2026-04-28 baseline (full table in [benchmarks/baseline.md](./benc
 
 Why the win was bigger than predicted: Solidity's `bytes` index access is ~30–40 gas per byte (the implicit bounds check, conversion, and pointer math compound). With ~100 varint bytes consumed per `decConditionalPay` decode, eliminating that cost matches the observed 7,154-gas saving on that path almost exactly.
 
-### 2. Add fixed-width readers for bytes-backed primitives
+### 2. Add fixed-width readers for bytes-backed primitives — **landed 2026-04-29**
 
-- [ ] Add specialized readers for protobuf fields that are length-delimited but semantically fixed-width:
-  - [ ] `decAddress`
-  - [ ] `decBytes32`
-  - [ ] `decUint256Bytes`
-- [ ] Update codegen so `address`, `bytes32`, and bytes-backed `uint256` fields use those readers directly instead of `decBytes` plus conversion helpers.
+- [x] Add specialized readers for protobuf fields that are length-delimited but semantically fixed-width:
+  - [x] `decAddress` — returns `address payable` so a single helper covers both `address` and `address payable` schema fields.
+  - [x] `decBytes32`
+  - [x] `decUint256` — uses `shr(mul(sub(32, len), 8), mload(...))` to right-align the variable-length payload into the low bits.
+- [x] Updated codegen so `address` / `address payable` / `bytes32` / `uint256` (bytes-backed) fields use those readers directly instead of `decBytes` plus conversion helpers.
+- [x] Removed the now-unused `_address`, `_addressPayable`, `_uint256`, `_bytes32` helpers.
 
-Why this matters:
+Result vs the post-§1 baseline (full table in [benchmarks/baseline.md](./benchmarks/baseline.md)):
 
-- These fields currently allocate a temporary `bytes` object only to read 20 or 32 bytes and throw the object away.
+- Another 5–13% per path on top of §1.
+- Cumulative since the 2026-04-28 pre-Phase-1 baseline: 16–25% faster than the legacy hand-tuned `Old` runtime on every measured path; 18.9% aggregate.
+- 32/32 tests still green; every malformed-input revert preserved (the length validation moved from `_address(b)` etc. into the new `decAddress` etc. helpers).
 
-Expected impact:
+Why the win was bigger than predicted: each removed `_x(buf.decBytes())` call eliminates not just the helper indirection but also `decBytes`'s allocation, its 32-byte stride memory copy, and the per-call gas overhead of dereferencing a `bytes memory` parameter. Each saved invocation is closer to 100–150 gas than the 30–60 originally estimated.
 
-- Medium improvement on message types with many hashes, addresses, and uint256 amounts.
+### 3. Runtime loop cleanup — **landed 2026-04-29**
 
-### 3. Runtime loop cleanup
+- [x] Apply `unchecked` increments where bounds are already enforced.
+- [x] Cache repeated `arr.length` reads in `uint8s`/`uint32s`/`uint64s`/`bools`.
+- [x] Generator-side: emit `unchecked { cnts[N]++; }` for repeated-field counters in every decoder.
+- [ ] `decPacked` further tightening — leave for later (current shape is fine; benchmark first).
 
-- [ ] Apply `unchecked` increments where bounds are already enforced.
-- [ ] Cache repeated `arr.length` and `buf.b.length` reads when that simplifies generated code.
-- [ ] Remove obviously redundant work in tight loops after reviewing compiler output.
-- [ ] Revisit `decPacked` only if benchmarks show packed paths are still material after the higher-value work lands.
+Where the `unchecked` blocks were applied:
 
-Why this matters:
+- `decVarint`'s 0..9 byte loop (the `i++`, plus arithmetic in the body).
+- `cntTags`' `cnts[tag] += 1`.
+- `decPacked`' element index `i`.
+- `decBytes`' 32-byte stride memory copy.
+- `uint8s` / `uint32s` / `uint64s` / `bools` array conversion counters.
+- Every generator-emitted `cnts[N]++` line.
 
-- Small per-iteration savings accumulate in repeated-field decode loops.
+Result vs the post-§2 baseline (full table in [benchmarks/baseline.md](./benchmarks/baseline.md)):
 
-Expected impact:
+- Another 14–16% per path on top of §2.
+- Cumulative since the 2026-04-28 pre-Phase-1 baseline: **30–37% faster** than the legacy hand-tuned `Old` runtime on every measured path; 31.7% aggregate.
+- 32/32 tests still green.
 
-- Small improvement.
+Why this was bigger than the "small improvement" expectation: Solidity 0.8's per-arithmetic overflow checks cost ~30–40 gas, and the runtime collectively runs hundreds of iterations per `decConditionalPay` decode (cntTags + actual decode each scan all fields, decVarint runs for every tag and every length prefix and every value, and `cnts[N]++` fires once per repeated-field element in nested messages). Each individually small check compounds.
 
 ### 4. Tighten packed repeated decoding only if benchmarks justify it
 
@@ -300,8 +312,8 @@ Why this matters:
 
 - [x] 1. Build the benchmark harness and record baselines.
 - [x] 2. Rework `decVarint` with benchmarked hardened fast paths.
-- [ ] 3. Implement fixed-width readers and wire them into codegen.
-- [ ] 4. Apply small runtime loop cleanups that show clear benchmark wins.
+- [x] 3. Implement fixed-width readers and wire them into codegen.
+- [x] 4. Apply small runtime loop cleanups that show clear benchmark wins.
 - [ ] 5. Prototype a calldata-native runtime path and measure it.
 - [ ] 6. Prototype zero-copy nested submessage decoding and measure it.
 - [ ] 7. If still justified by data, pursue partial decoders for the top 1 to 3 hot paths.

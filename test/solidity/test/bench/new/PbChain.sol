@@ -34,7 +34,9 @@ library PbChainNew {
                 m.channelInitializer = buf.decBytes();
             } else if (tag == 2) {
                 m.sigs[cnts[2]] = buf.decBytes();
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -65,7 +67,9 @@ library PbChainNew {
                 m.withdrawInfo = buf.decBytes();
             } else if (tag == 2) {
                 m.sigs[cnts[2]] = buf.decBytes();
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -92,7 +96,9 @@ library PbChainNew {
                 m.settleInfo = buf.decBytes();
             } else if (tag == 2) {
                 m.sigs[cnts[2]] = buf.decBytes();
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -123,7 +129,9 @@ library PbChainNew {
                 m.condPay = buf.decBytes();
             } else if (tag == 2) {
                 m.hashPreimages[cnts[2]] = buf.decBytes();
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -150,7 +158,9 @@ library PbChainNew {
                 m.simplexState = buf.decBytes();
             } else if (tag == 2) {
                 m.sigs[cnts[2]] = buf.decBytes();
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -174,7 +184,9 @@ library PbChainNew {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
                 m.signedSimplexStates[cnts[1]] = decSignedSimplexState(buf.decBytes());
-                cnts[1]++;
+                unchecked {
+                    cnts[1]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -201,7 +213,9 @@ library PbChainNew {
                 m.channelMigrationInfo = buf.decBytes();
             } else if (tag == 2) {
                 m.sigs[cnts[2]] = buf.decBytes();
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }

@@ -72,10 +72,14 @@ library PbMytest {
                 m.f8 = Pb.bools(buf.decPacked());
             } else if (tag == 9) {
                 m.f9[cnts[9]] = buf.decBytes();
-                cnts[9]++;
+                unchecked {
+                    cnts[9]++;
+                }
             } else if (tag == 10) {
                 m.f10[cnts[10]] = string(buf.decBytes());
-                cnts[10]++;
+                unchecked {
+                    cnts[10]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -117,27 +121,35 @@ library PbMytest {
             if (tag == 1) {
                 m.num = uint8(buf.decVarint());
             } else if (tag == 2) {
-                m.addr = Pb._address(buf.decBytes());
+                m.addr = buf.decAddress();
             } else if (tag == 3) {
-                m.addrPayable = Pb._addressPayable(buf.decBytes());
+                m.addrPayable = buf.decAddress();
             } else if (tag == 4) {
-                m.amt = Pb._uint256(buf.decBytes());
+                m.amt = buf.decUint256();
             } else if (tag == 5) {
-                m.hash = Pb._bytes32(buf.decBytes());
+                m.hash = buf.decBytes32();
             } else if (tag == 6) {
                 m.nums = Pb.uint8s(buf.decPacked());
             } else if (tag == 7) {
-                m.addrs[cnts[7]] = Pb._address(buf.decBytes());
-                cnts[7]++;
+                m.addrs[cnts[7]] = buf.decAddress();
+                unchecked {
+                    cnts[7]++;
+                }
             } else if (tag == 8) {
-                m.addrPayables[cnts[8]] = Pb._addressPayable(buf.decBytes());
-                cnts[8]++;
+                m.addrPayables[cnts[8]] = buf.decAddress();
+                unchecked {
+                    cnts[8]++;
+                }
             } else if (tag == 9) {
-                m.amts[cnts[9]] = Pb._uint256(buf.decBytes());
-                cnts[9]++;
+                m.amts[cnts[9]] = buf.decUint256();
+                unchecked {
+                    cnts[9]++;
+                }
             } else if (tag == 10) {
-                m.hashes[cnts[10]] = Pb._bytes32(buf.decBytes());
-                cnts[10]++;
+                m.hashes[cnts[10]] = buf.decBytes32();
+                unchecked {
+                    cnts[10]++;
+                }
             } else if (tag == 11) {
                 m.ts = buf.decVarint();
             } else if (tag == 12) {
@@ -174,10 +186,14 @@ library PbMytest {
                 m.m2 = decMsg2(buf.decBytes());
             } else if (tag == 3) {
                 m.m1s[cnts[3]] = decMsg1(buf.decBytes());
-                cnts[3]++;
+                unchecked {
+                    cnts[3]++;
+                }
             } else if (tag == 4) {
                 m.m2s[cnts[4]] = decMsg2(buf.decBytes());
-                cnts[4]++;
+                unchecked {
+                    cnts[4]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }

@@ -37,7 +37,9 @@ library PbB {
                 m.i = PbA.decA(buf.decBytes());
             } else if (tag == 2) {
                 m.alist[cnts[2]] = PbA.decA(buf.decBytes());
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else if (tag == 3) {
                 m.e = PbA.MyEnum(buf.decVarint());
             } else if (tag == 4) {

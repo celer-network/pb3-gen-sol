@@ -80,7 +80,10 @@ func TestGeneratorFixtures(t *testing.T) {
 		"Provides the `Buffer` cursor type and primitive decode helpers used by",
 		"if (tag > 0 && tag <= maxtag) {",
 		"require(idx < len);",
-		"require(b.length <= 32);",
+		"require(len <= 32);",
+		"function decAddress(Buffer memory buf)",
+		"function decBytes32(Buffer memory buf)",
+		"function decUint256(Buffer memory buf)",
 	} {
 		if !strings.Contains(pbRuntime, want) {
 			t.Fatalf("expected Pb.sol to contain %q", want)
@@ -89,8 +92,11 @@ func TestGeneratorFixtures(t *testing.T) {
 	if strings.Contains(pbRuntime, "require(raw.length > 1);") {
 		t.Fatalf("did not expect legacy runtime guard in Pb.sol")
 	}
-	if !strings.Contains(pbRuntime, "require(b.length == 20);") {
+	if !strings.Contains(pbRuntime, "require(len == 20);") {
 		t.Fatalf("expected address length guard in Pb.sol")
+	}
+	if !strings.Contains(pbRuntime, "require(len == 32);") {
+		t.Fatalf("expected bytes32 length guard in Pb.sol")
 	}
 
 	pbMytest := readFile(t, filepath.Join(outDir, "PbMytest.sol"))
@@ -108,6 +114,10 @@ func TestGeneratorFixtures(t *testing.T) {
 		"uint256[] memory cnts = buf.cntTags(12);",
 		"m.f4 = buf.decBytes();",
 		"m.ts = buf.decVarint();",
+		"m.addr = buf.decAddress();",
+		"m.addrPayable = buf.decAddress();",
+		"m.amt = buf.decUint256();",
+		"m.hash = buf.decBytes32();",
 	} {
 		if !strings.Contains(pbMytest, want) {
 			t.Fatalf("expected PbMytest.sol to contain %q", want)

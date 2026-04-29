@@ -72,9 +72,9 @@ library PbEntityNew {
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.account = PbNew._address(buf.decBytes());
+                m.account = buf.decAddress();
             } else if (tag == 2) {
-                m.amt = PbNew._uint256(buf.decBytes());
+                m.amt = buf.decUint256();
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -96,7 +96,7 @@ library PbEntityNew {
             if (tag == 1) {
                 m.tokenType = TokenType(buf.decVarint());
             } else if (tag == 2) {
-                m.tokenAddress = PbNew._address(buf.decBytes());
+                m.tokenAddress = buf.decAddress();
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -123,7 +123,9 @@ library PbEntityNew {
                 m.token = decTokenInfo(buf.decBytes());
             } else if (tag == 2) {
                 m.distribution[cnts[2]] = decAccountAmtPair(buf.decBytes());
-                cnts[2]++;
+                unchecked {
+                    cnts[2]++;
+                }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -170,9 +172,9 @@ library PbEntityNew {
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.channelId = PbNew._bytes32(buf.decBytes());
+                m.channelId = buf.decBytes32();
             } else if (tag == 2) {
-                m.peerFrom = PbNew._address(buf.decBytes());
+                m.peerFrom = buf.decAddress();
             } else if (tag == 3) {
                 m.seqNum = buf.decVarint();
             } else if (tag == 4) {
@@ -182,7 +184,7 @@ library PbEntityNew {
             } else if (tag == 6) {
                 m.lastPayResolveDeadline = buf.decVarint();
             } else if (tag == 7) {
-                m.totalPendingAmount = PbNew._uint256(buf.decBytes());
+                m.totalPendingAmount = buf.decUint256();
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -206,10 +208,12 @@ library PbEntityNew {
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.payIds[cnts[1]] = PbNew._bytes32(buf.decBytes());
-                cnts[1]++;
+                m.payIds[cnts[1]] = buf.decBytes32();
+                unchecked {
+                    cnts[1]++;
+                }
             } else if (tag == 2) {
-                m.nextListHash = PbNew._bytes32(buf.decBytes());
+                m.nextListHash = buf.decBytes32();
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -263,12 +267,14 @@ library PbEntityNew {
             if (tag == 1) {
                 m.payTimestamp = buf.decVarint();
             } else if (tag == 2) {
-                m.src = PbNew._address(buf.decBytes());
+                m.src = buf.decAddress();
             } else if (tag == 3) {
-                m.dest = PbNew._address(buf.decBytes());
+                m.dest = buf.decAddress();
             } else if (tag == 4) {
                 m.conditions[cnts[4]] = decCondition(buf.decBytes());
-                cnts[4]++;
+                unchecked {
+                    cnts[4]++;
+                }
             } else if (tag == 5) {
                 m.transferFunc = decTransferFunction(buf.decBytes());
             } else if (tag == 6) {
@@ -276,7 +282,7 @@ library PbEntityNew {
             } else if (tag == 7) {
                 m.resolveTimeout = buf.decVarint();
             } else if (tag == 8) {
-                m.payResolver = PbNew._address(buf.decBytes());
+                m.payResolver = buf.decAddress();
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -298,7 +304,7 @@ library PbEntityNew {
             if (tag == 1) {
                 m.condPay = buf.decBytes();
             } else if (tag == 2) {
-                m.amount = PbNew._uint256(buf.decBytes());
+                m.amount = buf.decUint256();
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -349,11 +355,11 @@ library PbEntityNew {
             if (tag == 1) {
                 m.conditionType = ConditionType(buf.decVarint());
             } else if (tag == 2) {
-                m.hashLock = PbNew._bytes32(buf.decBytes());
+                m.hashLock = buf.decBytes32();
             } else if (tag == 3) {
-                m.deployedContractAddress = PbNew._address(buf.decBytes());
+                m.deployedContractAddress = buf.decAddress();
             } else if (tag == 4) {
-                m.virtualContractAddress = PbNew._bytes32(buf.decBytes());
+                m.virtualContractAddress = buf.decBytes32();
             } else if (tag == 5) {
                 m.argsQueryFinalization = buf.decBytes();
             } else if (tag == 6) {
@@ -380,7 +386,7 @@ library PbEntityNew {
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.channelId = PbNew._bytes32(buf.decBytes());
+                m.channelId = buf.decBytes32();
             } else if (tag == 2) {
                 m.seqNum = buf.decVarint();
             } else if (tag == 3) {
@@ -388,7 +394,7 @@ library PbEntityNew {
             } else if (tag == 4) {
                 m.withdrawDeadline = buf.decVarint();
             } else if (tag == 5) {
-                m.recipientChannelId = PbNew._bytes32(buf.decBytes());
+                m.recipientChannelId = buf.decBytes32();
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
@@ -442,12 +448,14 @@ library PbEntityNew {
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.channelId = PbNew._bytes32(buf.decBytes());
+                m.channelId = buf.decBytes32();
             } else if (tag == 2) {
                 m.seqNum = buf.decVarint();
             } else if (tag == 3) {
                 m.settleBalance[cnts[3]] = decAccountAmtPair(buf.decBytes());
-                cnts[3]++;
+                unchecked {
+                    cnts[3]++;
+                }
             } else if (tag == 4) {
                 m.settleDeadline = buf.decVarint();
             } else {
@@ -471,11 +479,11 @@ library PbEntityNew {
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.channelId = PbNew._bytes32(buf.decBytes());
+                m.channelId = buf.decBytes32();
             } else if (tag == 2) {
-                m.fromLedgerAddress = PbNew._address(buf.decBytes());
+                m.fromLedgerAddress = buf.decAddress();
             } else if (tag == 3) {
-                m.toLedgerAddress = PbNew._address(buf.decBytes());
+                m.toLedgerAddress = buf.decAddress();
             } else if (tag == 4) {
                 m.migrationDeadline = buf.decVarint();
             } else {

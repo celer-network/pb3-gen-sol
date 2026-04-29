@@ -27,7 +27,7 @@ library PbB {
 
         uint256[] memory cnts = buf.cntTags(4);
         m.alist = new PbA.A[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         Pb.WireType wire;

@@ -20,7 +20,23 @@ Numbers are gas spent inside the decode call only (`gasleft()` deltas
 around just the `dec*` invocations). Payload construction, the bench's
 own assertion calls, and console-log emission are all excluded.
 
-### Latest — 2026-04-29 — Phase 1 §3 (`unchecked` loop counters)
+### Latest — 2026-04-29 — Phase 3 §8 (single-pass for inline-primitive repeated fields)
+
+| Path                                       | Bytes |    Old |    New |       Δ vs Old |
+| ------------------------------------------ | ----: | -----: | -----: | -------------: |
+| `decConditionalPay`                        |   185 | 57,401 | 39,989 | −17,412 (−30.3%) |
+| `decSimplexPaymentChannel`                 |   182 | 29,399 | 15,404 | −13,995 (−47.6%) |
+| `decPaymentChannelInitializer`             |    72 | 26,571 | 17,905 |  −8,666 (−32.6%) |
+| `decCooperativeWithdrawInfo`               |    69 | 11,043 |  6,978 |  −4,065 (−36.8%) |
+| `decCooperativeSettleInfo`                 |    99 | 26,142 | 17,283 |  −8,859 (−33.9%) |
+| `decResolvePayRequest + decConditionalPay` |   290 | 73,606 | 51,750 | −21,856 (−29.7%) |
+| `decSignedSimplexState + decSimplex`       |   319 | 42,542 | 24,818 | −17,724 (−41.7%) |
+| **Sum across all paths**                   |       | **266,704** | **174,127** | **−92,577 (−34.7%)** |
+
+The `New` runtime is now 30–48% faster than the legacy hand-tuned `Old`
+runtime. 32/32 tests green; every malformed-input revert preserved.
+
+### 2026-04-29 — after Phase 1 §3 (`unchecked` loop counters), pre-§8
 
 | Path                                       | Bytes |    Old |    New |       Δ vs Old |
 | ------------------------------------------ | ----: | -----: | -----: | -------------: |
@@ -32,10 +48,6 @@ own assertion calls, and console-log emission are all excluded.
 | `decResolvePayRequest + decConditionalPay` |   290 | 73,606 | 51,750 | −21,856 (−29.7%) |
 | `decSignedSimplexState + decSimplex`       |   319 | 42,542 | 28,786 | −13,756 (−32.3%) |
 | **Sum across all paths**                   |       | **266,704** | **182,062** | **−84,642 (−31.7%)** |
-
-The `New` runtime is now 30–37% faster than the legacy hand-tuned `Old`
-runtime on every measured path. 32/32 tests green; every malformed-input
-revert preserved.
 
 ### 2026-04-29 — after Phase 1 §2 (fixed-width readers), pre-§3
 
@@ -79,6 +91,33 @@ For reference, the numbers captured before any Phase 1 gas work:
 | **Sum across all paths**                   |       | **266,704** | **270,457** | **+3,753 (+1.41%)** |
 
 ## What this tells us
+
+### Phase 3 §8 result (single-pass for inline-primitive repeated fields)
+
+`cntTags` was scanning every length-delimited payload twice. §8 lets the
+generator skip the pre-pass for repeated fields whose element type is an
+**inline Solidity primitive** (`bytes32` / `address` / `uint256`); those
+fields now over-allocate to a per-element-type upper bound
+(`raw.length / 34` for `bytes32`, `/22` for `address`, `/2` for
+`uint256`), fill via a per-field counter local, and `mstore`-shrink the
+length at the end before assigning to the struct.
+
+Repeated **reference** element types (`bytes`, `string`, embedded struct)
+still use `cntTags`, because `new Foo[](N)` for a reference element type
+zero-initializes each over-allocated slot to a fresh sub-allocation —
+~8 words per `Condition`, ~2 words per empty `bytes`. An earlier
+implementation that over-allocated for those types blew up
+`decConditionalPay` by +9k gas; the mixed strategy avoids that
+regression while keeping the win where it lands cleanly.
+
+Result: −4.4% aggregate vs §3. The wins concentrate on paths that
+decode `PayIdList` (`repeated bytes32 payIds`):
+
+- `decSimplexPaymentChannel`: −3,967 gas (−20.5% vs §3).
+- `decSignedSimplexState + decSimplex`: −3,968 gas (−13.8% vs §3).
+
+Other paths sit at the §3 numbers — their repeated fields are reference
+types and still pay the `cntTags` pre-pass cost.
 
 ### Phase 1 §3 result (`unchecked` loop counters)
 
@@ -146,24 +185,22 @@ observed total.
 
 ### Implications for what's next
 
-- **Phase 1 is essentially done.** The per-byte and per-arithmetic
-  overhead in the runtime is now minimal. Further wins require
-  structural changes (Phase 2/3) — the easy "constant-factor scrubbing"
-  surface is mostly gone.
-- **`cntTags` double-pass** (Phase 3 §8) is now the single largest
-  remaining cost on most paths. It scans the full payload twice. With
-  varint and fixed-width readers already optimized, the dominant cost
-  inside that pre-pass is just the `decKey` + `skipValue` call shape
-  itself. Eliminating the pre-pass entirely (over-allocate + shrink for
-  repeated fields, like `decPacked` already does) would be the next
-  big lever.
+- **A single-pass strategy that also works for reference element types**
+  is the natural follow-up to §8. Allocating `uint256[]` (or raw memory)
+  as a typeless scratch and writing pointers in via assembly, then
+  aliasing the scratch to the target array type at the end, would
+  eliminate `cntTags` for `repeated bytes` / `repeated string` /
+  `repeated <message>` too. Estimated upside on the agent-pay paths
+  that don't already benefit: ~500–1,500 gas each, similar to the
+  PayIdList-driven wins seen here. Worth doing if it lands cleanly,
+  but it's more assembly per dispatch line.
 - **Calldata-native decoding** (Phase 2 §5) becomes more interesting
   the smaller decode itself becomes. The per-call memory-copy cost on
-  external entry is now a larger relative share.
+  external entry is now a larger relative share of total cost.
 - **Stop criteria check.** The plan's stop criterion #1 ("the remaining
   ideas only produce marginal gains relative to added complexity") is
-  approaching for Phase 1. Whether to attempt Phase 2 should be a
-  deliberate measurement-driven decision, not automatic.
+  approaching. Each subsequent change should be a deliberate
+  measurement-driven decision, not automatic.
 
 ## Reproduction
 

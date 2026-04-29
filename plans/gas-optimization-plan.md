@@ -28,8 +28,10 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [x] Foundry benchmark harness landed at [test/solidity/test/bench/](../test/solidity/test/bench/), pairing the current runtime against a frozen `agent-pay-contracts` snapshot. Baselines captured in [benchmarks/baseline.md](./benchmarks/baseline.md).
 - [x] Hardened-fast `decVarint` landed 2026-04-29. Every path is now 12–14% faster than the legacy `Old` runtime; +1.4% aggregate regression replaced with a −12.7% aggregate improvement.
 - [x] Fixed-width readers (`decAddress` / `decBytes32` / `decUint256`) landed 2026-04-29. Cumulative −18.9% aggregate vs `Old`; every path 16–25% faster than legacy.
-- [x] Runtime loop `unchecked` cleanup landed 2026-04-29. Cumulative **−31.7% aggregate vs `Old`**; every path 30–37% faster than legacy.
-- [ ] Phase 1 is effectively complete. Further wins require structural changes (Phase 2/3); evaluate `cntTags` single-pass (Phase 3 §8) or calldata-native decoding (Phase 2 §5) next.
+- [x] Runtime loop `unchecked` cleanup landed 2026-04-29. Cumulative −31.7% aggregate vs `Old`; every path 30–37% faster than legacy.
+- [x] `cntTags` single-pass for inline-primitive repeated fields (Phase 3 §8) landed 2026-04-29. Cumulative **−34.7% aggregate vs `Old`**; every path 30–48% faster than legacy.
+- [ ] Open follow-up: single-pass for reference-typed repeated fields via `uint256[]` scratch + assembly cast. Estimated upside ~500–1,500 gas per path that doesn't already benefit. Tracked in §8 above.
+- [ ] Other Phase 2 / 3 levers (calldata-native runtime, partial decoders) remain available — evaluate against the current baseline before scoping; headroom is shrinking.
 
 ## Findings From The 2026-04 Baseline
 
@@ -261,26 +263,34 @@ Risk:
 
 The current `cntTags` prepass is correct and simple. It is also expensive. Any replacement should be benchmarked carefully.
 
-### 8. Reduce or avoid the `cntTags` double-pass where practical
+### 8. Reduce or avoid the `cntTags` double-pass where practical — **partially landed 2026-04-29**
 
-- [ ] Benchmark how much `cntTags` contributes on repeated-field-heavy messages.
-- [ ] Evaluate these options in order:
-  - [ ] keep `cntTags` for the general case but optimize hot repeated primitive cases separately,
-  - [ ] generate fixed-cardinality decode paths when schema or application knowledge permits,
-  - [ ] introduce optional schema hints for bounded repeated fields,
-  - [ ] prototype over-allocation plus in-place shrink only if it does not create pathological memory cost.
+- [x] Benchmark how much `cntTags` contributes on repeated-field-heavy messages.
+- [x] Implement the "keep `cntTags` for the general case, optimize hot repeated primitive cases separately" path:
+  - [x] For repeated **inline-primitive** element types (`bytes32` / `address` / `uint256`): over-allocate to a per-element upper bound, fill in single pass, `mstore`-shrink the length, assign to the struct.
+  - [x] For repeated **reference** element types (`bytes` / `string` / embedded struct): keep the `cntTags` pre-pass and a correctly-sized allocation. (An earlier implementation that over-allocated for these types regressed `decConditionalPay` by +9k gas because Solidity zero-initializes each slot to a fresh sub-allocation.)
+- [ ] Single-pass for **reference** element types via `uint256[]` scratch + assembly stores + final aliasing cast — open follow-up. The mixed strategy gives non-regressing wins on the paths that benefit; the reference-type version is a separate generator restructure.
+- [ ] Optional schema hints for bounded repeated fields — not pursued; the per-element-type minimum wire size (1+1+payload-min) gives a tight enough bound for the inline-primitive cases.
 
-Why this matters:
+What landed:
 
-- Repeated bytes and repeated submessages currently cost two full scans of the same payload.
+- New per-decoder shape for inline-primitive repeated fields:
+  ```solidity
+  bytes32[] memory _arr1 = new bytes32[](raw.length / 34);
+  uint256 _cnt1 = 0;
+  // ... dispatch loop writes _arr1[_cnt1] and increments unchecked ...
+  assembly ("memory-safe") { mstore(_arr1, _cnt1) }
+  m.payIds = _arr1;
+  ```
+- Mixed-strategy generator: `repeatedField.useScratch` toggles between scratch + shrink and the legacy `cntTags` path on a per-field basis.
+- Per-element-type `minWireSize` (`bytes32`→34, `address`→22, default→2) keeps the over-alloc upper bound tight where the element type allows.
 
-Expected impact:
+Result vs the post-§3 baseline:
 
-- Medium improvement, but highly workload-dependent.
-
-Risk:
-
-- General single-pass dynamic array construction in Solidity is awkward. A naive rewrite can easily get more expensive or more fragile.
+- −4.4% aggregate across the 7 representative paths.
+- Cumulative since the 2026-04-28 pre-Phase-1 baseline: **30–48% faster** than the legacy hand-tuned `Old` runtime; 34.7% aggregate.
+- Wins concentrate on paths that decode `PayIdList` (`repeated bytes32 payIds`): `decSimplexPaymentChannel` −20.5%, `decSignedSimplexState + decSimplex` −13.8%. Other paths unchanged from §3 (their repeated fields are reference types).
+- 32/32 tests still green.
 
 ## Phase 4: Application-Level Adoption
 
@@ -314,10 +324,11 @@ Why this matters:
 - [x] 2. Rework `decVarint` with benchmarked hardened fast paths.
 - [x] 3. Implement fixed-width readers and wire them into codegen.
 - [x] 4. Apply small runtime loop cleanups that show clear benchmark wins.
-- [ ] 5. Prototype a calldata-native runtime path and measure it.
-- [ ] 6. Prototype zero-copy nested submessage decoding and measure it.
-- [ ] 7. If still justified by data, pursue partial decoders for the top 1 to 3 hot paths.
-- [ ] 8. Revisit `cntTags` and packed repeated decoding only after the higher-confidence wins land.
+- [x] 5. `cntTags` single-pass for inline-primitive repeated fields (the higher-confidence half of §8).
+- [ ] 6. Prototype a calldata-native runtime path and measure it.
+- [ ] 7. Prototype zero-copy nested submessage decoding and measure it.
+- [ ] 8. Single-pass for reference-typed repeated fields (the second half of §8).
+- [ ] 9. If still justified by data, pursue partial decoders for the top 1 to 3 hot paths.
 
 ## Change Tracking
 

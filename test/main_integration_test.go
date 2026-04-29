@@ -111,13 +111,24 @@ func TestGeneratorFixtures(t *testing.T) {
 		"address payable[] addrPayables;",
 		"uint ts;",
 		"uint[] tss;",
-		"uint256[] memory cnts = buf.cntTags(12);",
 		"m.f4 = buf.decBytes();",
 		"m.ts = buf.decVarint();",
 		"m.addr = buf.decAddress();",
 		"m.addrPayable = buf.decAddress();",
 		"m.amt = buf.decUint256();",
 		"m.hash = buf.decBytes32();",
+		// Inline-primitive repeated fields use over-alloc + shrink.
+		"address[] memory _arr7 = new address[](raw.length / 22);",
+		"address payable[] memory _arr8 = new address payable[](raw.length / 22);",
+		"uint256[] memory _arr9 = new uint256[](raw.length / 2);",
+		"bytes32[] memory _arr10 = new bytes32[](raw.length / 34);",
+		`assembly ("memory-safe") { mstore(_arr10, _cnt10) }`,
+		"m.hashes = _arr10;",
+		// Reference-type repeated fields keep the cntTags pre-pass.
+		"uint256[] memory cnts = buf.cntTags(",
+		"m.f9 = new bytes[](cnts[9]);",
+		"m.f10 = new string[](cnts[10]);",
+		"unchecked { cnts[9]++; }",
 	} {
 		if !strings.Contains(pbMytest, want) {
 			t.Fatalf("expected PbMytest.sol to contain %q", want)

@@ -113,7 +113,7 @@ library PbEntityNew {
 
         uint256[] memory cnts = buf.cntTags(2);
         m.distribution = new AccountAmtPair[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -199,18 +199,17 @@ library PbEntityNew {
     function decPayIdList(bytes memory raw) internal pure returns (PayIdList memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.payIds = new bytes32[](cnts[1]);
-        cnts[1] = 0; // reset counter for later use
+        bytes32[] memory _arr1 = new bytes32[](raw.length / 34);
+        uint256 _cnt1 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.payIds[cnts[1]] = buf.decBytes32();
+                _arr1[_cnt1] = buf.decBytes32();
                 unchecked {
-                    cnts[1]++;
+                    _cnt1++;
                 }
             } else if (tag == 2) {
                 m.nextListHash = buf.decBytes32();
@@ -218,6 +217,9 @@ library PbEntityNew {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        assembly ("memory-safe") { mstore(_arr1, _cnt1) }
+        m.payIds = _arr1;
     } // end decoder PayIdList
 
     struct TransferFunction {
@@ -258,7 +260,7 @@ library PbEntityNew {
 
         uint256[] memory cnts = buf.cntTags(8);
         m.conditions = new Condition[](cnts[4]);
-        cnts[4] = 0; // reset counter for later use
+        cnts[4] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -441,7 +443,7 @@ library PbEntityNew {
 
         uint256[] memory cnts = buf.cntTags(4);
         m.settleBalance = new AccountAmtPair[](cnts[3]);
-        cnts[3] = 0; // reset counter for later use
+        cnts[3] = 0;
 
         uint256 tag;
         PbNew.WireType wire;

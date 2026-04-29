@@ -332,25 +332,55 @@ func (g *Generator) generateEnum(e enumdes) {
 	g.P("}\n")
 }
 
+// repeatedField captures the codegen state for one length-delimited repeated
+// field. `useScratch` is true for fields whose element type is an inline
+// Solidity primitive (`bytes32` / `address` / `uint256`), where allocating
+// `new T[](upperBound)` costs only `upperBound` words of zero-initialized
+// memory. For reference element types (`bytes`, `string`, embedded struct)
+// each over-allocated slot would zero-init a fresh sub-allocation, which
+// can cost thousands of gas — those fields fall back to the `cntTags`
+// pre-pass and a correctly-sized allocation.
+type repeatedField struct {
+	solName     string // struct field name in solidity (camelCase)
+	elementType string // element solidity type, no `[]` suffix
+	tag         int32  // proto field number
+	minWireSize int    // minimum bytes per occurrence on the wire
+	useScratch  bool   // single-pass over-alloc + shrink (inline primitives only)
+}
+
+// inlinePrimitiveSolTypes are element types whose `new T[](N)` does not
+// trigger expensive per-element zero-initialization. Each slot is just a
+// 32-byte zero word, so over-allocation is cheap.
+var inlinePrimitiveSolTypes = map[string]bool{
+	"bytes32":         true,
+	"address":         true,
+	"address payable": true,
+	"uint256":         true,
+}
+
 func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string) {
 	// map from tag(field number) to its decoder solidity code string
 	tag2dec := make(map[int]string)
 
 	g.P("struct ", m.Name, " {")
 	g.In()
-	// because solidity doesn't support dynamic sized memory array
-	// we need to count tag(field number) occurrences for repeated bytes or messages
-	// then new the correct size array.
-	// repeated uint doesn't need this because it's packed
-	needNew := []string{"uint256[] memory cnts = buf.cntTags({MAX_TAG});"}
-	// go over fields and put decode string into tag2dec
+	var repeated []repeatedField
 	for _, f := range m.Field {
 		t := getSolType(f, g.extnum, currentPkg, knownPkgs)
 		g.P(t, " ", toSolNaming(f.Name), ";", "   // tag: ", f.Number)
-		tag2dec[int(*f.Number)] = getSolDecodeStr(f, t)
 		if isRepeated(f) && (getWiretype(*f.Type) == WireLendel) {
-			needNew = append(needNew, fmt.Sprintf("m.%s = new %s(cnts[%d]);", toSolNaming(f.Name), t, *f.Number))
-			needNew = append(needNew, fmt.Sprintf("cnts[%d] = 0;  // reset counter for later use", *f.Number))
+			elementType := strings.TrimSuffix(t, "[]")
+			rf := repeatedField{
+				solName:     toSolNaming(f.Name),
+				elementType: elementType,
+				tag:         *f.Number,
+				minWireSize: minWireSize(getSolFieldSoltype(f, g.extnum)),
+				useScratch:  inlinePrimitiveSolTypes[elementType],
+			}
+			repeated = append(repeated, rf)
+			tag2dec[int(*f.Number)] = getSolDecodeStr(f, t, rf.useScratch)
+		} else {
+			tag2dec[int(*f.Number)] = getSolDecodeStr(f, t, false)
 		}
 	}
 	g.Out()
@@ -363,11 +393,33 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 	g.P("function ", getDecFname(*m.Name), "(bytes memory raw) internal pure returns (", m.Name, " memory m) {")
 	g.In()
 	g.P("Pb.Buffer memory buf = Pb.fromBytes(raw);\n")
-	if len(needNew) > 1 { // some fields need to new
-		g.P(strings.Replace(needNew[0], "{MAX_TAG}", strconv.Itoa(stags[len(stags)-1]), 1)) // replace placeholder w/ actual max tag number
-		for _, s := range needNew[1:] {
-			g.P(s)
+
+	// Reference-type repeated fields still need cntTags + correctly-sized
+	// allocations. Inline-primitive repeated fields use over-allocation and
+	// in-place shrink.
+	hasCntTags := false
+	for _, rf := range repeated {
+		if !rf.useScratch {
+			hasCntTags = true
+			break
 		}
+	}
+	if hasCntTags {
+		g.P("uint256[] memory cnts = buf.cntTags(", strconv.Itoa(int(stags[len(stags)-1])), ");")
+		for _, rf := range repeated {
+			if !rf.useScratch {
+				g.P(fmt.Sprintf("m.%s = new %s[](cnts[%d]);", rf.solName, rf.elementType, rf.tag))
+				g.P(fmt.Sprintf("cnts[%d] = 0;", rf.tag))
+			}
+		}
+	}
+	for _, rf := range repeated {
+		if rf.useScratch {
+			g.P(fmt.Sprintf("%s[] memory _arr%d = new %s[](raw.length / %d);", rf.elementType, rf.tag, rf.elementType, rf.minWireSize))
+			g.P(fmt.Sprintf("uint256 _cnt%d = 0;", rf.tag))
+		}
+	}
+	if len(repeated) > 0 {
 		g.P()
 	}
 	g.P("uint256 tag;")
@@ -393,9 +445,55 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 	}
 	g.Out()
 	g.P("}")
+	hasScratch := false
+	for _, rf := range repeated {
+		if rf.useScratch {
+			hasScratch = true
+			break
+		}
+	}
+	if hasScratch {
+		g.P()
+		for _, rf := range repeated {
+			if rf.useScratch {
+				g.P(fmt.Sprintf(`assembly ("memory-safe") { mstore(_arr%d, _cnt%d) }`, rf.tag, rf.tag))
+				g.P(fmt.Sprintf("m.%s = _arr%d;", rf.solName, rf.tag))
+			}
+		}
+	}
 	g.Out()
 	g.P("} ", "// end decoder ", m.Name, "\n")
 	// TODO(oneof): check m.OneofDecl and generate struct members and funcs
+}
+
+// minWireSize returns the minimum number of bytes that one occurrence of a
+// repeated length-delimited field can consume on the wire, used as the
+// denominator for the over-allocation upper bound. The minimum encoding is
+// 1 byte tag + 1 byte length-varint + payload-min, where payload-min is
+// dictated by the soltype for fixed-width fields and 0 otherwise (empty
+// bytes / strings / messages are valid encodings).
+func minWireSize(soltype string) int {
+	switch soltype {
+	case "bytes32":
+		return 1 + 1 + 32
+	case "address", "address payable":
+		return 1 + 1 + 20
+	}
+	return 1 + 1 + 0
+}
+
+// getSolFieldSoltype returns the field's `(soltype)` extension value if
+// present, otherwise empty. It is a thin wrapper over `getSolTypeOption`
+// that also handles missing extensions.
+func getSolFieldSoltype(field *descriptor.FieldDescriptorProto, extnum int32) string {
+	if field.Options == nil || extnum == -1 {
+		return ""
+	}
+	v, ok := getSolTypeOption(field.Options, extnum)
+	if !ok {
+		return ""
+	}
+	return v
 }
 func (g *Generator) shouldOutput(msgname string) bool {
 	if len(g.onlymsgs) == 0 {
@@ -417,8 +515,13 @@ func inArray(s string, arr []string) bool {
 	return false
 }
 
-// return solidity code to decode this field
-func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string) (code string) {
+// return solidity code to decode this field. `useScratch` controls how
+// repeated length-delimited fields are written: when true, the dispatch
+// writes into a `_arr<tag>` scratch local with an `_cnt<tag>` counter that
+// `generateMsg` allocates ahead of the loop. When false (or the field is
+// not repeated), it writes directly into `m.<field>[cnts[<tag>]]` using the
+// classic `cntTags` pre-pass.
+func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string, useScratch bool) (code string) {
 	// soltype could be uint256 or another message name
 	soltype = strings.TrimSuffix(soltype, "[]") // remove [] for array, no-op if doesn't have it
 	wire := getWiretype(*field.Type)
@@ -457,10 +560,18 @@ func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string) (co
 	}
 
 	if isRepeated(field) {
-		code = fmt.Sprintf("m.%s[cnts[%d]] = %s;\n", toSolNaming(field.Name), *field.Number, decfun)
-		// cnts[N] is bounded by cntTags' first-pass count, which is bounded by
-		// the payload size, so the unchecked increment is safe.
-		code += fmt.Sprintf("{XXX_INDENT}unchecked { cnts[%d]++; }", *field.Number)
+		if useScratch {
+			// _arr<tag>/_cnt<tag> are declared at the top of the decoder body
+			// (see generateMsg). The counter is bounded by the array length
+			// (the over-alloc upper bound) — unchecked is safe.
+			code = fmt.Sprintf("_arr%d[_cnt%d] = %s;\n", *field.Number, *field.Number, decfun)
+			code += fmt.Sprintf("{XXX_INDENT}unchecked { _cnt%d++; }", *field.Number)
+		} else {
+			// cnts[N] is bounded by cntTags' first-pass count, which is bounded by
+			// the payload size — unchecked is safe.
+			code = fmt.Sprintf("m.%s[cnts[%d]] = %s;\n", toSolNaming(field.Name), *field.Number, decfun)
+			code += fmt.Sprintf("{XXX_INDENT}unchecked { cnts[%d]++; }", *field.Number)
+		}
 	} else {
 		code = fmt.Sprintf("m.%s = %s;", toSolNaming(field.Name), decfun)
 	}

@@ -46,9 +46,9 @@ library PbMytest {
 
         uint256[] memory cnts = buf.cntTags(10);
         m.f9 = new bytes[](cnts[9]);
-        cnts[9] = 0; // reset counter for later use
+        cnts[9] = 0;
         m.f10 = new string[](cnts[10]);
-        cnts[10] = 0; // reset counter for later use
+        cnts[10] = 0;
 
         uint256 tag;
         Pb.WireType wire;
@@ -104,15 +104,14 @@ library PbMytest {
     function decMsg2(bytes memory raw) internal pure returns (Msg2 memory m) {
         Pb.Buffer memory buf = Pb.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(12);
-        m.addrs = new address[](cnts[7]);
-        cnts[7] = 0; // reset counter for later use
-        m.addrPayables = new address payable[](cnts[8]);
-        cnts[8] = 0; // reset counter for later use
-        m.amts = new uint256[](cnts[9]);
-        cnts[9] = 0; // reset counter for later use
-        m.hashes = new bytes32[](cnts[10]);
-        cnts[10] = 0; // reset counter for later use
+        address[] memory _arr7 = new address[](raw.length / 22);
+        uint256 _cnt7 = 0;
+        address payable[] memory _arr8 = new address payable[](raw.length / 22);
+        uint256 _cnt8 = 0;
+        uint256[] memory _arr9 = new uint256[](raw.length / 2);
+        uint256 _cnt9 = 0;
+        bytes32[] memory _arr10 = new bytes32[](raw.length / 34);
+        uint256 _cnt10 = 0;
 
         uint256 tag;
         Pb.WireType wire;
@@ -131,24 +130,24 @@ library PbMytest {
             } else if (tag == 6) {
                 m.nums = Pb.uint8s(buf.decPacked());
             } else if (tag == 7) {
-                m.addrs[cnts[7]] = buf.decAddress();
+                _arr7[_cnt7] = buf.decAddress();
                 unchecked {
-                    cnts[7]++;
+                    _cnt7++;
                 }
             } else if (tag == 8) {
-                m.addrPayables[cnts[8]] = buf.decAddress();
+                _arr8[_cnt8] = buf.decAddress();
                 unchecked {
-                    cnts[8]++;
+                    _cnt8++;
                 }
             } else if (tag == 9) {
-                m.amts[cnts[9]] = buf.decUint256();
+                _arr9[_cnt9] = buf.decUint256();
                 unchecked {
-                    cnts[9]++;
+                    _cnt9++;
                 }
             } else if (tag == 10) {
-                m.hashes[cnts[10]] = buf.decBytes32();
+                _arr10[_cnt10] = buf.decBytes32();
                 unchecked {
-                    cnts[10]++;
+                    _cnt10++;
                 }
             } else if (tag == 11) {
                 m.ts = buf.decVarint();
@@ -158,6 +157,15 @@ library PbMytest {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        assembly ("memory-safe") { mstore(_arr7, _cnt7) }
+        m.addrs = _arr7;
+        assembly ("memory-safe") { mstore(_arr8, _cnt8) }
+        m.addrPayables = _arr8;
+        assembly ("memory-safe") { mstore(_arr9, _cnt9) }
+        m.amts = _arr9;
+        assembly ("memory-safe") { mstore(_arr10, _cnt10) }
+        m.hashes = _arr10;
     } // end decoder Msg2
 
     struct Msg3 {
@@ -172,9 +180,9 @@ library PbMytest {
 
         uint256[] memory cnts = buf.cntTags(4);
         m.m1s = new Msg1[](cnts[3]);
-        cnts[3] = 0; // reset counter for later use
+        cnts[3] = 0;
         m.m2s = new Msg2[](cnts[4]);
-        cnts[4] = 0; // reset counter for later use
+        cnts[4] = 0;
 
         uint256 tag;
         Pb.WireType wire;

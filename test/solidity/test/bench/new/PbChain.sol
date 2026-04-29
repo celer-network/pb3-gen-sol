@@ -24,7 +24,7 @@ library PbChainNew {
 
         uint256[] memory cnts = buf.cntTags(2);
         m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -57,7 +57,7 @@ library PbChainNew {
 
         uint256[] memory cnts = buf.cntTags(2);
         m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -86,7 +86,7 @@ library PbChainNew {
 
         uint256[] memory cnts = buf.cntTags(2);
         m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -119,7 +119,7 @@ library PbChainNew {
 
         uint256[] memory cnts = buf.cntTags(2);
         m.hashPreimages = new bytes[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -148,7 +148,7 @@ library PbChainNew {
 
         uint256[] memory cnts = buf.cntTags(2);
         m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -176,7 +176,7 @@ library PbChainNew {
 
         uint256[] memory cnts = buf.cntTags(1);
         m.signedSimplexStates = new SignedSimplexState[](cnts[1]);
-        cnts[1] = 0; // reset counter for later use
+        cnts[1] = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -203,7 +203,7 @@ library PbChainNew {
 
         uint256[] memory cnts = buf.cntTags(2);
         m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0; // reset counter for later use
+        cnts[2] = 0;
 
         uint256 tag;
         PbNew.WireType wire;

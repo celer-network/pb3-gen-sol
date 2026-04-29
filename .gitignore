@@ -2,10 +2,12 @@ protoc-gen-sol
 .vscode
 .DS_Store
 
-# ignore generated pb and sol files
+# ignore generated protobuf and solidity fixtures
 test/*.pb
-test/solidity/contracts/lib/*.sol
+test/fixtures/bin/*.pb
 
 # solidity test gitignore
 test/solidity/node_modules/
 test/solidity/build/
+test/solidity/cache/
+test/solidity/out/

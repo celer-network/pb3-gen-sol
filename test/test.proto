@@ -2,6 +2,7 @@
 syntax = "proto3";
 // package name is used for both generated .sol file name and library name
 package mytest;
+
 // next is a special case to extend FieldOptions, no effect on generated .sol file
 import "google/protobuf/descriptor.proto";
 
@@ -15,9 +16,11 @@ extend google.protobuf.FieldOptions {
 // supported proto types: uint32, uint64, bool, bytes, string. this list is from
 // generator.pbType2Str keys. generated sol code has the same type.
 // supported soltype values: uint8, address, bytes32, uint256, uint
-// each value requires specific proto type, see generator.SolTypeMap
+// each value requires specific proto type, see generator.SolTypeMap.
+// `uint` means a proto uint64 exposed as Solidity's native uint/uint256 syntax.
+// `uint256` is reserved for bytes-backed full-width integers rather than uint64 varints.
 // embedded msg is supported
-message Msg1 {  // only native types
+message Msg1 { // only native types
   uint32 f1 = 1;
   uint64 f2 = 2;
   bool f3 = 3;
@@ -30,22 +33,22 @@ message Msg1 {  // only native types
   repeated string f10 = 10;
 }
 
-message Msg2 {  // use soltype
-  uint32 num = 1 [ (soltype) = "uint8" ];
-  bytes addr = 2 [ (soltype) = "address" ];
-  bytes addr_payable = 3 [ (soltype) = "address payable" ];
-  bytes amt = 4 [ (soltype) = "uint256" ];
-  bytes hash = 5 [ (soltype) = "bytes32" ];
-  repeated uint32 nums = 6 [ (soltype) = "uint8" ];
-  repeated bytes addrs = 7 [ (soltype) = "address" ];
-  repeated bytes addr_payables = 8 [ (soltype) = "address payable" ];
-  repeated bytes amts = 9 [ (soltype) = "uint256" ];
-  repeated bytes hashes = 10 [ (soltype) = "bytes32" ];
-  uint64 ts = 11 [ (soltype) = "uint" ];
-  repeated uint64 tss = 12 [ (soltype) = "uint" ];
+message Msg2 { // use soltype
+  uint32 num = 1 [(soltype) = "uint8"];
+  bytes addr = 2 [(soltype) = "address"];
+  bytes addr_payable = 3 [(soltype) = "address payable"];
+  bytes amt = 4 [(soltype) = "uint256"];
+  bytes hash = 5 [(soltype) = "bytes32"];
+  repeated uint32 nums = 6 [(soltype) = "uint8"];
+  repeated bytes addrs = 7 [(soltype) = "address"];
+  repeated bytes addr_payables = 8 [(soltype) = "address payable"];
+  repeated bytes amts = 9 [(soltype) = "uint256"];
+  repeated bytes hashes = 10 [(soltype) = "bytes32"];
+  uint64 ts = 11 [(soltype) = "uint"];
+  repeated uint64 tss = 12 [(soltype) = "uint"];
 }
 
-message Msg3 {  // embedded msgs
+message Msg3 { // embedded msgs
   Msg1 m1 = 1;
   Msg2 m2 = 2;
   repeated Msg1 m1s = 3;

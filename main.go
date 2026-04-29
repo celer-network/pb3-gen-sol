@@ -5,11 +5,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"github.com/celer-network/pb3-gen-sol/generator"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 var showver = flag.Bool("v", false, "Show version and exit")
@@ -25,7 +25,7 @@ func main() {
 	// report failure.
 	g := generator.New()
 
-	data, err := ioutil.ReadAll(os.Stdin)
+	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		generator.Error(err, "reading input")
 	}

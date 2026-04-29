@@ -1,3 +1,5 @@
 module github.com/celer-network/pb3-gen-sol
 
-require github.com/golang/protobuf v1.2.0
+go 1.24.0
+
+require google.golang.org/protobuf v1.36.11

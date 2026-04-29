@@ -1,0 +1,11 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+optimizer = true
+optimizer_runs = 200
+fs_permissions = [{ access = "read", path = "../" }]
+
+[lint]
+exclude_lints = ["unaliased-plain-import", "mixed-case-function", "screaming-snake-case-const"]

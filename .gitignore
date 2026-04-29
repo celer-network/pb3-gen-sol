@@ -11,3 +11,5 @@ test/solidity/node_modules/
 test/solidity/build/
 test/solidity/cache/
 test/solidity/out/
+
+archive/

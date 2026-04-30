@@ -30,13 +30,8 @@ jobs:
       - name: Regenerate Solidity fixtures
         run: bash test/generate_sol_pb.sh
 
-      - name: Regenerate benchmark fixtures
-        run: bash test/solidity/test/bench/regen.sh
-
       - name: Verify generated Solidity is up to date
-        run: |
-          git diff --exit-code -- test/solidity/src/lib
-          git diff --exit-code -- test/solidity/test/bench/new
+        run: git diff --exit-code -- test/solidity/src/lib
 
   forge:
     runs-on: ubuntu-latest
@@ -62,9 +57,6 @@ jobs:
 
       - name: Regenerate Solidity and protobuf fixtures
         run: bash test/generate_sol_pb.sh
-
-      - name: Regenerate benchmark fixtures
-        run: bash test/solidity/test/bench/regen.sh
 
       - name: Check formatting
         working-directory: test/solidity

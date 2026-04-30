@@ -212,6 +212,11 @@ func TestGeneratorFatalPaths(t *testing.T) {
 			helperArg:     "getsoltype-nested",
 			wantSubstring: "nested types are not supported",
 		},
+		{
+			name:          "reject [packed=false] repeated scalar",
+			helperArg:     "validate-packed-false",
+			wantSubstring: "[packed=false] is not supported",
+		},
 	}
 
 	for _, tt := range tests {
@@ -263,6 +268,15 @@ func TestGeneratorFatalHelperProcess(t *testing.T) {
 	case "getsoltype-nested":
 		field := newQualifiedField("nested", descriptor.FieldDescriptorProto_TYPE_MESSAGE, ".foo.bar.Outer.Inner")
 		_ = getSolType(field, -1, "foo.bar", []string{"foo.bar"})
+	case "validate-packed-false":
+		packed := false
+		field := newPrimitiveField(
+			"nums",
+			descriptor.FieldDescriptorProto_TYPE_UINT32,
+			descriptor.FieldDescriptorProto_LABEL_REPEATED,
+			&descriptor.FieldOptions{Packed: &packed},
+		)
+		validatePackedOption(field)
 	default:
 		os.Exit(2)
 	}

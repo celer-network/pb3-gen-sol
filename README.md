@@ -201,4 +201,5 @@ The Forge job also installs Go and `protoc` because it regenerates Solidity and 
 - No support for `int32` or `int64`.
 - Nested message and enum definitions are still unsupported.
 - Sparse or reordered proto enum numeric values are unsupported because Solidity enums must remain dense `0..N`.
+- Repeated scalar numerics (`uint32`, `uint64`, `bool`, enum) are decoded packed-only. The proto3 default is packed; schemas explicitly using `[packed=false]` are rejected at generation time.
 - The generator only emits decoders today.

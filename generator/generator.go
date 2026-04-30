@@ -406,6 +406,7 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 	g.In()
 	var repeated []repeatedField
 	for _, f := range m.Field {
+		validatePackedOption(f)
 		t := getSolType(f, g.extnum, currentPkg, knownPkgs)
 		g.P(t, " ", toSolNaming(f.Name), ";", "   // tag: ", f.Number)
 		tag2key[int(*f.Number)] = (int(*f.Number) << 3) | expectedWireNum(f)
@@ -508,6 +509,32 @@ func minWireSize(soltype string) int {
 		return 1 + 1 + 20
 	}
 	return 1 + 1 + 0
+}
+
+// validatePackedOption rejects schemas that explicitly opt out of
+// packed encoding for a repeated scalar or enum field via
+// `[packed=false]`. The generator emits packed-only decode logic for
+// these fields (combined-key dispatch matches LengthDelim), so an
+// unpacked-on-the-wire payload would silently fall into the unknown-
+// tag skip path and drop every element. Rejecting the schema up front
+// avoids generating a decoder that would silently lose data.
+//
+// Length-delimited element types (bytes, string, message) are not
+// affected — the `packed` option does not apply to them in the
+// protobuf spec.
+func validatePackedOption(f *descriptor.FieldDescriptorProto) {
+	if !isRepeated(f) {
+		return
+	}
+	if getWiretype(*f.Type) != WireVarint {
+		return
+	}
+	if f.Options == nil || f.Options.Packed == nil {
+		return
+	}
+	if !*f.Options.Packed {
+		Fail("repeated scalar/enum field with [packed=false] is not supported", *f.Name)
+	}
 }
 
 // expectedWireNum returns the protobuf wire-type number (0..5) that a

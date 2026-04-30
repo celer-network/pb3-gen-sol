@@ -111,9 +111,8 @@ library PbEntityNew {
     function decTokenDistribution(bytes memory raw) internal pure returns (TokenDistribution memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.distribution = new AccountAmtPair[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -122,14 +121,22 @@ library PbEntityNew {
             if (tag == 1) {
                 m.token = decTokenInfo(buf.decBytes());
             } else if (tag == 2) {
-                m.distribution[cnts[2]] = decAccountAmtPair(buf.decBytes());
+                AccountAmtPair memory _v2 = decAccountAmtPair(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        AccountAmtPair[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.distribution = _result2;
     } // end decoder TokenDistribution
 
     struct TokenTransfer {
@@ -258,9 +265,8 @@ library PbEntityNew {
     function decConditionalPay(bytes memory raw) internal pure returns (ConditionalPay memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(8);
-        m.conditions = new Condition[](cnts[4]);
-        cnts[4] = 0;
+        uint256[] memory _arr4 = new uint256[](raw.length / 2);
+        uint256 _cnt4 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -273,9 +279,10 @@ library PbEntityNew {
             } else if (tag == 3) {
                 m.dest = buf.decAddress();
             } else if (tag == 4) {
-                m.conditions[cnts[4]] = decCondition(buf.decBytes());
+                Condition memory _v4 = decCondition(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr4, 32), shl(5, _cnt4)), _v4) }
                 unchecked {
-                    cnts[4]++;
+                    _cnt4++;
                 }
             } else if (tag == 5) {
                 m.transferFunc = decTransferFunction(buf.decBytes());
@@ -289,6 +296,13 @@ library PbEntityNew {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        Condition[] memory _result4;
+        assembly ("memory-safe") {
+            mstore(_arr4, _cnt4)
+            _result4 := _arr4
+        }
+        m.conditions = _result4;
     } // end decoder ConditionalPay
 
     struct CondPayResult {
@@ -441,9 +455,8 @@ library PbEntityNew {
     function decCooperativeSettleInfo(bytes memory raw) internal pure returns (CooperativeSettleInfo memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(4);
-        m.settleBalance = new AccountAmtPair[](cnts[3]);
-        cnts[3] = 0;
+        uint256[] memory _arr3 = new uint256[](raw.length / 2);
+        uint256 _cnt3 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -454,9 +467,10 @@ library PbEntityNew {
             } else if (tag == 2) {
                 m.seqNum = buf.decVarint();
             } else if (tag == 3) {
-                m.settleBalance[cnts[3]] = decAccountAmtPair(buf.decBytes());
+                AccountAmtPair memory _v3 = decAccountAmtPair(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr3, 32), shl(5, _cnt3)), _v3) }
                 unchecked {
-                    cnts[3]++;
+                    _cnt3++;
                 }
             } else if (tag == 4) {
                 m.settleDeadline = buf.decVarint();
@@ -464,6 +478,13 @@ library PbEntityNew {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        AccountAmtPair[] memory _result3;
+        assembly ("memory-safe") {
+            mstore(_arr3, _cnt3)
+            _result3 := _arr3
+        }
+        m.settleBalance = _result3;
     } // end decoder CooperativeSettleInfo
 
     struct ChannelMigrationInfo {

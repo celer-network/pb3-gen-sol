@@ -10,25 +10,17 @@ Use this roadmap together with the detailed execution plans:
 
 ## Active Workstreams
 
-### 1. Benchmark Harness and Hot-Path Gas Work — **substantially complete**
+### 1. Benchmark Harness and Hot-Path Gas Work — **complete**
 
 Status: Phase 1 (`decVarint` fast path, fixed-width readers, `unchecked`
-loop cleanup) and the inline-primitive half of Phase 3 §8 (`cntTags`
-single-pass for `bytes32` / `address` / `uint256` repeated fields) all
-shipped 2026-04-29. The current `New` runtime is **30–48% faster than
-the frozen `agent-pay-contracts` runtime** on every measured path
-(−34.7% aggregate). See
+loop cleanup) and Phase 3 §8 in full (`cntTags` removed; single-pass
+scratch for both inline-primitive and reference-typed repeated fields)
+all shipped 2026-04-29. The current `New` runtime is **36–58% faster
+than the frozen `agent-pay-contracts` runtime** on every measured path
+(−50.8% aggregate). See
 [benchmarks/baseline.md](./benchmarks/baseline.md) for the full table.
 
 Primary tracking: [gas-optimization-plan.md](./gas-optimization-plan.md)
-
-Remaining within this workstream:
-
-- Single-pass for **reference-typed** repeated fields (`bytes` / `string`
-  / embedded struct) via a typeless `uint256[]` scratch + assembly
-  alias. Closes out §8. Estimated upside ~500–1,500 gas per affected
-  path. Recommended next step before any structural redesign — see
-  Tier A in the gas plan.
 
 Exit criteria:
 
@@ -36,7 +28,7 @@ Exit criteria:
 - [x] `decVarint` improvements measured, not assumed.
 - [x] Hot-path gas work preserves deterministic malformed-input behavior.
 - [x] CI regenerates `bench/new/` and fails on drift.
-- [ ] §8 second half (reference-type single-pass) lands or is explicitly closed as not worth the complexity.
+- [x] §8 second half (reference-type single-pass) landed; `cntTags` removed.
 
 ### 2. Structural Runtime Optimization — **open**
 
@@ -46,7 +38,7 @@ calldata-backed reads and offset-based slicing into a parent buffer.
 
 Primary tracking: [gas-optimization-plan.md](./gas-optimization-plan.md)
 
-Recommended order (revised post-§8):
+Recommended order:
 
 1. **Zero-copy nested submessage decoding (§6).** Biggest remaining
    upside on AgentPay because every entrypoint has nested decodes.
@@ -58,12 +50,6 @@ Recommended order (revised post-§8):
 3. **Partial decoders for measured hot paths (§7).** Only if the
    consumer side has paths that demonstrably need a subset of fields.
    Adds generator surface; should be driven by data, not preemptive.
-
-Earlier drafts ordered §5 / §6 ahead of §8 because §8 sat under "Phase 3
-Repeated-Field Strategy". In practice §8's inline-primitive half was
-contained Phase 1 work and landed cleanly; the reference-type half is
-also Tier-A contained work and should ship before any of the structural
-items above.
 
 Deferred / dormant:
 

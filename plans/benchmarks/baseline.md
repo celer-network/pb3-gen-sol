@@ -20,7 +20,25 @@ Numbers are gas spent inside the decode call only (`gasleft()` deltas
 around just the `dec*` invocations). Payload construction, the bench's
 own assertion calls, and console-log emission are all excluded.
 
-### Latest — 2026-04-29 — Phase 3 §8 (single-pass for inline-primitive repeated fields)
+### Latest — 2026-04-29 — Phase 3 §8 second half (typeless-scratch single-pass for reference-typed repeated fields; `cntTags` removed)
+
+| Path                                       | Bytes |    Old |    New |       Δ vs Old |
+| ------------------------------------------ | ----: | -----: | -----: | -------------: |
+| `decConditionalPay`                        |   185 | 57,401 | 27,278 | −30,123 (−52.5%) |
+| `decSimplexPaymentChannel`                 |   182 | 29,399 | 15,376 | −14,023 (−47.7%) |
+| `decPaymentChannelInitializer`             |    72 | 26,571 | 13,895 | −12,676 (−47.7%) |
+| `decCooperativeWithdrawInfo`               |    69 | 11,043 |  6,994 |  −4,049 (−36.7%) |
+| `decCooperativeSettleInfo`                 |    99 | 26,142 | 11,066 | −15,076 (−57.7%) |
+| `decResolvePayRequest + decConditionalPay` |   290 | 73,606 | 34,744 | −38,862 (−52.8%) |
+| `decSignedSimplexState + decSimplex`       |   319 | 42,542 | 21,733 | −20,809 (−48.9%) |
+| **Sum across all paths**                   |       | **266,704** | **131,086** | **−135,618 (−50.8%)** |
+
+The `New` runtime is now 36–58% faster than the legacy `Old` runtime;
+the runtime literally costs **half** of `Old` in aggregate. 34/34 tests
+still green; every malformed-input revert preserved. `cntTags` is dead
+code and has been removed from the runtime.
+
+### 2026-04-29 — after Phase 3 §8 first half (inline-primitive single-pass), pre-§8b
 
 | Path                                       | Bytes |    Old |    New |       Δ vs Old |
 | ------------------------------------------ | ----: | -----: | -----: | -------------: |
@@ -32,9 +50,6 @@ own assertion calls, and console-log emission are all excluded.
 | `decResolvePayRequest + decConditionalPay` |   290 | 73,606 | 51,750 | −21,856 (−29.7%) |
 | `decSignedSimplexState + decSimplex`       |   319 | 42,542 | 24,818 | −17,724 (−41.7%) |
 | **Sum across all paths**                   |       | **266,704** | **174,127** | **−92,577 (−34.7%)** |
-
-The `New` runtime is now 30–48% faster than the legacy hand-tuned `Old`
-runtime. 32/32 tests green; every malformed-input revert preserved.
 
 ### 2026-04-29 — after Phase 1 §3 (`unchecked` loop counters), pre-§8
 
@@ -92,7 +107,45 @@ For reference, the numbers captured before any Phase 1 gas work:
 
 ## What this tells us
 
-### Phase 3 §8 result (single-pass for inline-primitive repeated fields)
+### Phase 3 §8 second half result (typeless-scratch single-pass for reference-typed repeated fields)
+
+Closing out §8: every length-delimited repeated field now uses
+single-pass over-allocate + in-place shrink. For reference-typed
+elements (`bytes`, `string`, embedded struct) the scratch is allocated
+as `uint256[]` (no per-slot zero-init of fresh sub-allocations); the
+dispatch decodes the element into a typed temp, `mstore`s the
+pointer/value into the scratch via assembly, and at the end aliases
+the scratch to the target array type via assembly assignment before
+the final `m.field = ...` line. `cntTags` is removed from the runtime
+entirely — no decoder calls it anymore.
+
+Result: another **−24.7% aggregate** on top of §8a, with the biggest
+absolute savings on:
+
+- `decConditionalPay`: −12,711 gas (−31.8% vs §8a). The `repeated
+  Condition conditions` field was the dominant remaining cost.
+- `decResolvePayRequest + decConditionalPay`: −17,006 gas (−32.9%
+  vs §8a). Wrapper has `repeated bytes hashPreimages`, inner has the
+  Condition repeat.
+- `decCooperativeSettleInfo`: −6,217 gas (−36.0% vs §8a). `repeated
+  AccountAmtPair settleBalance`.
+- `decPaymentChannelInitializer`: −4,010 gas (−22.4% vs §8a). The
+  embedded `TokenDistribution` has `repeated AccountAmtPair`.
+- `decMsg3_nested` (stress): 218,107 → 184,875 (−15.2%). Reference-
+  typed outer repeats (`repeated Msg1`, `repeated Msg2`) were the
+  big win.
+
+The `cntTags` pre-pass cost was much larger than the
+"~500–1,500 gas per path" pre-implementation estimate. With
+`decVarint` already at its hardened-fast shape, each `cntTags`
+iteration was still ~100–200 gas (decKey + skipValue), and
+`decConditionalPay` accumulated 11+ wire entries through the prepass
+(8 outer fields with 3 repeated `conditions` becoming 3 separate
+wire entries each), plus recursive `cntTags` invocations inside every
+nested submessage that has its own repeated lendel fields. Removing
+the prepass eliminates that compound cost.
+
+### Phase 3 §8 first half result (single-pass for inline-primitive repeated fields)
 
 `cntTags` was scanning every length-delimited payload twice. §8 lets the
 generator skip the pre-pass for repeated fields whose element type is an
@@ -209,10 +262,16 @@ not exercise. No `Old` paired runtime — `test.proto` has no legacy
 snapshot. These numbers are tracked as absolute baselines so a future
 regression on multi-scratch decoders surfaces in CI.
 
-| Path                  | Bytes |     New |
-| --------------------- | ----: | ------: |
-| `decMsg2_multiScratch` | 351 |  30,847 |
-| `decMsg3_nested`       | 1,210 | 218,107 |
+| Path                   | Bytes |     New |
+| ---------------------- | ----: | ------: |
+| `decMsg2_multiScratch` |   351 |  30,847 |
+| `decMsg3_nested`       | 1,210 | 184,875 |
+
+`decMsg3_nested` dropped from 218,107 to 184,875 (−15.2%) when §8
+second half landed: its outer `repeated Msg1` and `repeated Msg2` are
+reference types and previously paid the `cntTags` pre-pass cost.
+`decMsg2_multiScratch` is unchanged because its repeated fields are
+all inline primitives (already on the §8a fast path).
 
 `decMsg2_multiScratch` exercises the four-scratch case directly:
 `addrs` / `addrPayables` (`address`, min wire 22 → 15 slot bound),

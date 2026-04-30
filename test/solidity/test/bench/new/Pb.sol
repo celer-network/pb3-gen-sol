@@ -41,28 +41,6 @@ library PbNew {
         wiretype = WireType(v & 7);
     }
 
-    // count tag occurrences, return an array due to no memory map support
-    // have to create array for (maxtag+1) size. cnts[tag] = occurrences
-    // should keep buf.idx unchanged because this is only a count function
-    function cntTags(Buffer memory buf, uint256 maxtag) internal pure returns (uint256[] memory cnts) {
-        uint256 originalIdx = buf.idx;
-        cnts = new uint256[](maxtag + 1); // protobuf's tags are from 1 rather than 0
-        uint256 tag;
-        WireType wire;
-        while (hasMore(buf)) {
-            (tag, wire) = decKey(buf);
-            if (tag > 0 && tag <= maxtag) {
-                // Per-tag count is bounded by payload length, which is bounded
-                // by gas — overflow is unreachable.
-                unchecked {
-                    cnts[tag] += 1;
-                }
-            }
-            skipValue(buf, wire);
-        }
-        buf.idx = originalIdx;
-    }
-
     // read varint from current buf idx, move buf.idx to next read, return the int value
     function decVarint(Buffer memory buf) internal pure returns (uint256 v) {
         bytes memory bb = buf.b;

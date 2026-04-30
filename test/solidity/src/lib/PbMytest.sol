@@ -44,11 +44,10 @@ library PbMytest {
     function decMsg1(bytes memory raw) internal pure returns (Msg1 memory m) {
         Pb.Buffer memory buf = Pb.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(10);
-        m.f9 = new bytes[](cnts[9]);
-        cnts[9] = 0;
-        m.f10 = new string[](cnts[10]);
-        cnts[10] = 0;
+        uint256[] memory _arr9 = new uint256[](raw.length / 2);
+        uint256 _cnt9 = 0;
+        uint256[] memory _arr10 = new uint256[](raw.length / 2);
+        uint256 _cnt10 = 0;
 
         uint256 tag;
         Pb.WireType wire;
@@ -71,19 +70,34 @@ library PbMytest {
             } else if (tag == 8) {
                 m.f8 = Pb.bools(buf.decPacked());
             } else if (tag == 9) {
-                m.f9[cnts[9]] = buf.decBytes();
+                bytes memory _v9 = buf.decBytes();
+                assembly ("memory-safe") { mstore(add(add(_arr9, 32), shl(5, _cnt9)), _v9) }
                 unchecked {
-                    cnts[9]++;
+                    _cnt9++;
                 }
             } else if (tag == 10) {
-                m.f10[cnts[10]] = string(buf.decBytes());
+                string memory _v10 = string(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr10, 32), shl(5, _cnt10)), _v10) }
                 unchecked {
-                    cnts[10]++;
+                    _cnt10++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        bytes[] memory _result9;
+        assembly ("memory-safe") {
+            mstore(_arr9, _cnt9)
+            _result9 := _arr9
+        }
+        m.f9 = _result9;
+        string[] memory _result10;
+        assembly ("memory-safe") {
+            mstore(_arr10, _cnt10)
+            _result10 := _arr10
+        }
+        m.f10 = _result10;
     } // end decoder Msg1
 
     struct Msg2 {
@@ -178,11 +192,10 @@ library PbMytest {
     function decMsg3(bytes memory raw) internal pure returns (Msg3 memory m) {
         Pb.Buffer memory buf = Pb.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(4);
-        m.m1s = new Msg1[](cnts[3]);
-        cnts[3] = 0;
-        m.m2s = new Msg2[](cnts[4]);
-        cnts[4] = 0;
+        uint256[] memory _arr3 = new uint256[](raw.length / 2);
+        uint256 _cnt3 = 0;
+        uint256[] memory _arr4 = new uint256[](raw.length / 2);
+        uint256 _cnt4 = 0;
 
         uint256 tag;
         Pb.WireType wire;
@@ -193,19 +206,34 @@ library PbMytest {
             } else if (tag == 2) {
                 m.m2 = decMsg2(buf.decBytes());
             } else if (tag == 3) {
-                m.m1s[cnts[3]] = decMsg1(buf.decBytes());
+                Msg1 memory _v3 = decMsg1(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr3, 32), shl(5, _cnt3)), _v3) }
                 unchecked {
-                    cnts[3]++;
+                    _cnt3++;
                 }
             } else if (tag == 4) {
-                m.m2s[cnts[4]] = decMsg2(buf.decBytes());
+                Msg2 memory _v4 = decMsg2(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr4, 32), shl(5, _cnt4)), _v4) }
                 unchecked {
-                    cnts[4]++;
+                    _cnt4++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        Msg1[] memory _result3;
+        assembly ("memory-safe") {
+            mstore(_arr3, _cnt3)
+            _result3 := _arr3
+        }
+        m.m1s = _result3;
+        Msg2[] memory _result4;
+        assembly ("memory-safe") {
+            mstore(_arr4, _cnt4)
+            _result4 := _arr4
+        }
+        m.m2s = _result4;
     } // end decoder Msg3
 
     struct Msg4 {

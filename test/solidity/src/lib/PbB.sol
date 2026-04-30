@@ -25,9 +25,8 @@ library PbB {
     function decB(bytes memory raw) internal pure returns (B memory m) {
         Pb.Buffer memory buf = Pb.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(4);
-        m.alist = new PbA.A[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         Pb.WireType wire;
@@ -36,9 +35,10 @@ library PbB {
             if (tag == 1) {
                 m.i = PbA.decA(buf.decBytes());
             } else if (tag == 2) {
-                m.alist[cnts[2]] = PbA.decA(buf.decBytes());
+                PbA.A memory _v2 = PbA.decA(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else if (tag == 3) {
                 m.e = PbA.MyEnum(buf.decVarint());
@@ -48,5 +48,12 @@ library PbB {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        PbA.A[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.alist = _result2;
     } // end decoder B
 }

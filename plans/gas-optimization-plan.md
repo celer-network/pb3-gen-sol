@@ -36,7 +36,8 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [x] Hardened-fast `decVarint` landed 2026-04-29. Every path is now 12–14% faster than the legacy `Old` runtime; +1.4% aggregate regression replaced with a −12.7% aggregate improvement.
 - [x] Fixed-width readers (`decAddress` / `decBytes32` / `decUint256`) landed 2026-04-29. Cumulative −18.9% aggregate vs `Old`; every path 16–25% faster than legacy.
 - [x] Runtime loop `unchecked` cleanup landed 2026-04-29. Cumulative −31.7% aggregate vs `Old`; every path 30–37% faster than legacy.
-- [x] `cntTags` single-pass for inline-primitive repeated fields (Phase 3 §8, first half) landed 2026-04-29. Cumulative **−34.7% aggregate vs `Old`**; every path 30–48% faster than legacy.
+- [x] `cntTags` single-pass for inline-primitive repeated fields (Phase 3 §8, first half) landed 2026-04-29. Cumulative −34.7% aggregate vs `Old`; every path 30–48% faster than legacy.
+- [x] Typeless-scratch single-pass for reference-typed repeated fields (Phase 3 §8, second half) landed 2026-04-29. `cntTags` removed from the runtime entirely. Cumulative **−50.8% aggregate vs `Old`**; every path 36–58% faster than legacy.
 
 ## Open Work, Prioritized
 
@@ -44,15 +45,14 @@ This is the recommended order to take on what's left. The execution
 order at the bottom of this document is the canonical to-do list; the
 buckets below explain why.
 
-### Tier A — close out the contained wins
+### ~~Tier A — close out the contained wins~~ — landed 2026-04-29
 
-- **§8 second half: single-pass for reference-typed repeated fields.**
-  Natural extension of what just landed. Same generator infrastructure,
-  no API change, no Buffer redesign. Trick: allocate a typeless
-  `uint256[]` scratch (no per-slot zero-init of sub-allocations), write
-  pointers via `assembly mstore`, alias to the target array type at the
-  end. Estimated upside ~500–1,500 gas per path that doesn't already
-  benefit. Worth doing before any structural change.
+§8 second half landed. The `uint256[]` scratch + assembly mstore + final
+aliasing cast for reference-typed repeated fields was much higher upside
+than estimated (~3–17 kgas saved per affected path, not 0.5–1.5 kgas) —
+the `cntTags` pre-pass had been costing more than the pre-§8a numbers
+suggested because each iteration still paid a non-trivial decKey +
+skipValue cycle, and nested decoders compounded the cost.
 
 ### Tier B — structural wins, do behind a Buffer redesign
 
@@ -345,18 +345,17 @@ Risk:
 
 The current `cntTags` prepass is correct and simple. It is also expensive. Any replacement should be benchmarked carefully.
 
-### 8. Reduce or avoid the `cntTags` double-pass where practical — **partially landed 2026-04-29**
+### 8. Reduce or avoid the `cntTags` double-pass where practical — **landed 2026-04-29**
 
 - [x] Benchmark how much `cntTags` contributes on repeated-field-heavy messages.
-- [x] Implement the "keep `cntTags` for the general case, optimize hot repeated primitive cases separately" path:
-  - [x] For repeated **inline-primitive** element types (`bytes32` / `address` / `uint256`): over-allocate to a per-element upper bound, fill in single pass, `mstore`-shrink the length, assign to the struct.
-  - [x] For repeated **reference** element types (`bytes` / `string` / embedded struct): keep the `cntTags` pre-pass and a correctly-sized allocation. (An earlier implementation that over-allocated for these types regressed `decConditionalPay` by +9k gas because Solidity zero-initializes each slot to a fresh sub-allocation.)
-- [ ] Single-pass for **reference** element types via `uint256[]` scratch + assembly stores + final aliasing cast — open follow-up. The mixed strategy gives non-regressing wins on the paths that benefit; the reference-type version is a separate generator restructure.
-- [ ] Optional schema hints for bounded repeated fields — not pursued; the per-element-type minimum wire size (1+1+payload-min) gives a tight enough bound for the inline-primitive cases.
+- [x] Single-pass for **inline-primitive** element types (`bytes32` / `address` / `uint256`): allocate as the actual element-type array, fill in single pass, `mstore`-shrink the length, assign to the struct.
+- [x] Single-pass for **reference** element types (`bytes` / `string` / embedded struct) via typeless `uint256[]` scratch + assembly `mstore` + final aliasing cast. Avoids the per-slot zero-init that an earlier "naive over-alloc with the actual array type" attempt paid (which regressed `decConditionalPay` by +9k gas).
+- [x] `cntTags` removed from the runtime entirely. No decoder calls it anymore; the integration test asserts it no longer appears in generated output.
+- [ ] Optional schema hints for bounded repeated fields — not pursued; the per-element-type minimum wire size (1+1+payload-min) gives a tight enough bound for the cases that benefit.
 
 What landed:
 
-- New per-decoder shape for inline-primitive repeated fields:
+- For inline-primitive repeats:
   ```solidity
   bytes32[] memory _arr1 = new bytes32[](raw.length / 34);
   uint256 _cnt1 = 0;
@@ -364,15 +363,39 @@ What landed:
   assembly ("memory-safe") { mstore(_arr1, _cnt1) }
   m.payIds = _arr1;
   ```
-- Mixed-strategy generator: `repeatedField.useScratch` toggles between scratch + shrink and the legacy `cntTags` path on a per-field basis.
+- For reference-typed repeats:
+  ```solidity
+  uint256[] memory _arr4 = new uint256[](raw.length / 2);
+  uint256 _cnt4 = 0;
+  // ... in dispatch:
+  Condition memory _v4 = decCondition(buf.decBytes());
+  assembly ("memory-safe") { mstore(add(add(_arr4, 32), shl(5, _cnt4)), _v4) }
+  unchecked { _cnt4++; }
+  // ... at end:
+  Condition[] memory _result4;
+  assembly ("memory-safe") { mstore(_arr4, _cnt4) _result4 := _arr4 }
+  m.conditions = _result4;
+  ```
+- `repeatedField.typelessScratch` toggles between the two flavors; both use scratch + shrink, no `cntTags` either way.
 - Per-element-type `minWireSize` (`bytes32`→34, `address`→22, default→2) keeps the over-alloc upper bound tight where the element type allows.
 
-Result vs the post-§3 baseline:
+Result:
 
-- −4.4% aggregate across the 7 representative paths.
-- Cumulative since the 2026-04-28 pre-Phase-1 baseline: **30–48% faster** than the legacy hand-tuned `Old` runtime; 34.7% aggregate.
-- Wins concentrate on paths that decode `PayIdList` (`repeated bytes32 payIds`): `decSimplexPaymentChannel` −20.5%, `decSignedSimplexState + decSimplex` −13.8%. Other paths unchanged from §3 (their repeated fields are reference types).
-- 32/32 tests still green.
+- §8 first half (inline-primitive): −4.4% aggregate vs §3 baseline.
+- §8 second half (typeless scratch): another −24.7% aggregate vs §8 first half.
+- **Cumulative −50.8% aggregate vs `Old`**; every path 36–58% faster than legacy.
+- 34/34 tests still green.
+
+Why the second-half win was much larger than the pre-implementation
+estimate (predicted ~500–1,500 gas/path, actual ~3,000–17,000 gas/path):
+the `cntTags` pre-pass cost was load-bearing on the longer paths.
+`decConditionalPay` paid for cntTags scanning 11 wire entries (8 fields,
+with 3 repeated condition occurrences) plus another cntTags inside
+every nested submessage that had its own repeated lendel field. With
+`decVarint` already at its hardened-fast shape, each cntTags iteration
+still did ~100–200 gas of decKey + skipValue work; eliminating that
+compounded across nesting saved more than the field-level analysis
+suggested.
 
 ## Phase 4: Application-Level Adoption
 
@@ -415,7 +438,7 @@ re-prioritized by upside × risk against the current
 - [x] 3. Implement fixed-width readers and wire them into codegen.
 - [x] 4. Apply small runtime loop cleanups that show clear benchmark wins.
 - [x] 5. `cntTags` single-pass for inline-primitive repeated fields.
-- [ ] 6. **Single-pass for reference-typed repeated fields (close out §8).** Contained extension of what just landed; no API change. Estimated upside ~500–1,500 gas per affected path.
+- [x] 6. Single-pass for reference-typed repeated fields. `cntTags` retired from the runtime.
 - [ ] 7. **Prototype zero-copy nested submessage decoding (§6).** Biggest remaining structural upside on agent-pay (every entrypoint has nested decodes). Requires a Buffer redesign — risky.
 - [ ] 8. **Prototype a calldata-native runtime path (§5).** Builds on the same Buffer redesign as zero-copy nested. Saves the initial calldata→memory copy on every external entrypoint.
 - [ ] 9. If measured hot paths justify, pursue partial decoders (§7).

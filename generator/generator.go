@@ -333,24 +333,31 @@ func (g *Generator) generateEnum(e enumdes) {
 }
 
 // repeatedField captures the codegen state for one length-delimited repeated
-// field. `useScratch` is true for fields whose element type is an inline
-// Solidity primitive (`bytes32` / `address` / `uint256`), where allocating
-// `new T[](upperBound)` costs only `upperBound` words of zero-initialized
-// memory. For reference element types (`bytes`, `string`, embedded struct)
-// each over-allocated slot would zero-init a fresh sub-allocation, which
-// can cost thousands of gas — those fields fall back to the `cntTags`
-// pre-pass and a correctly-sized allocation.
+// field. Every such field uses single-pass over-allocate + in-place shrink
+// (no `cntTags` pre-pass).
+//
+// `typelessScratch` distinguishes the two scratch flavors:
+//
+//   - `false` (inline-primitive element types `bytes32` / `address` / `uint256`):
+//     allocate the scratch as the actual element type's array. Each slot is
+//     just a 32-byte zero word, no sub-allocation. Stores and the final
+//     assignment are direct.
+//   - `true` (reference element types `bytes` / `string` / embedded struct):
+//     allocate the scratch as `uint256[]` to avoid per-slot zero-init of
+//     fresh sub-allocations. Stores write the element pointer/value via
+//     assembly `mstore`. At the end the scratch is aliased to the target
+//     array type via assembly assignment, then assigned to the struct field.
 type repeatedField struct {
-	solName     string // struct field name in solidity (camelCase)
-	elementType string // element solidity type, no `[]` suffix
-	tag         int32  // proto field number
-	minWireSize int    // minimum bytes per occurrence on the wire
-	useScratch  bool   // single-pass over-alloc + shrink (inline primitives only)
+	solName         string // struct field name in solidity (camelCase)
+	elementType     string // element solidity type, no `[]` suffix
+	tag             int32  // proto field number
+	minWireSize     int    // minimum bytes per occurrence on the wire
+	typelessScratch bool   // see doc above
 }
 
 // inlinePrimitiveSolTypes are element types whose `new T[](N)` does not
 // trigger expensive per-element zero-initialization. Each slot is just a
-// 32-byte zero word, so over-allocation is cheap.
+// 32-byte zero word, so allocating directly as `T[] memory` is cheap.
 var inlinePrimitiveSolTypes = map[string]bool{
 	"bytes32":         true,
 	"address":         true,
@@ -371,14 +378,14 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 		if isRepeated(f) && (getWiretype(*f.Type) == WireLendel) {
 			elementType := strings.TrimSuffix(t, "[]")
 			rf := repeatedField{
-				solName:     toSolNaming(f.Name),
-				elementType: elementType,
-				tag:         *f.Number,
-				minWireSize: minWireSize(getSolFieldSoltype(f, g.extnum)),
-				useScratch:  inlinePrimitiveSolTypes[elementType],
+				solName:         toSolNaming(f.Name),
+				elementType:     elementType,
+				tag:             *f.Number,
+				minWireSize:     minWireSize(getSolFieldSoltype(f, g.extnum)),
+				typelessScratch: !inlinePrimitiveSolTypes[elementType],
 			}
 			repeated = append(repeated, rf)
-			tag2dec[int(*f.Number)] = getSolDecodeStr(f, t, rf.useScratch)
+			tag2dec[int(*f.Number)] = getSolDecodeStr(f, t, rf.typelessScratch)
 		} else {
 			tag2dec[int(*f.Number)] = getSolDecodeStr(f, t, false)
 		}
@@ -394,30 +401,13 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 	g.In()
 	g.P("Pb.Buffer memory buf = Pb.fromBytes(raw);\n")
 
-	// Reference-type repeated fields still need cntTags + correctly-sized
-	// allocations. Inline-primitive repeated fields use over-allocation and
-	// in-place shrink.
-	hasCntTags := false
 	for _, rf := range repeated {
-		if !rf.useScratch {
-			hasCntTags = true
-			break
-		}
-	}
-	if hasCntTags {
-		g.P("uint256[] memory cnts = buf.cntTags(", strconv.Itoa(int(stags[len(stags)-1])), ");")
-		for _, rf := range repeated {
-			if !rf.useScratch {
-				g.P(fmt.Sprintf("m.%s = new %s[](cnts[%d]);", rf.solName, rf.elementType, rf.tag))
-				g.P(fmt.Sprintf("cnts[%d] = 0;", rf.tag))
-			}
-		}
-	}
-	for _, rf := range repeated {
-		if rf.useScratch {
+		if rf.typelessScratch {
+			g.P(fmt.Sprintf("uint256[] memory _arr%d = new uint256[](raw.length / %d);", rf.tag, rf.minWireSize))
+		} else {
 			g.P(fmt.Sprintf("%s[] memory _arr%d = new %s[](raw.length / %d);", rf.elementType, rf.tag, rf.elementType, rf.minWireSize))
-			g.P(fmt.Sprintf("uint256 _cnt%d = 0;", rf.tag))
 		}
+		g.P(fmt.Sprintf("uint256 _cnt%d = 0;", rf.tag))
 	}
 	if len(repeated) > 0 {
 		g.P()
@@ -445,17 +435,17 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 	}
 	g.Out()
 	g.P("}")
-	hasScratch := false
-	for _, rf := range repeated {
-		if rf.useScratch {
-			hasScratch = true
-			break
-		}
-	}
-	if hasScratch {
+	if len(repeated) > 0 {
 		g.P()
 		for _, rf := range repeated {
-			if rf.useScratch {
+			if rf.typelessScratch {
+				// Shrink the length and alias the typeless scratch to the
+				// actual element-type array in one assembly block, then
+				// assign to the struct field.
+				g.P(fmt.Sprintf("%s[] memory _result%d;", rf.elementType, rf.tag))
+				g.P(fmt.Sprintf(`assembly ("memory-safe") { mstore(_arr%d, _cnt%d) _result%d := _arr%d }`, rf.tag, rf.tag, rf.tag, rf.tag))
+				g.P(fmt.Sprintf("m.%s = _result%d;", rf.solName, rf.tag))
+			} else {
 				g.P(fmt.Sprintf(`assembly ("memory-safe") { mstore(_arr%d, _cnt%d) }`, rf.tag, rf.tag))
 				g.P(fmt.Sprintf("m.%s = _arr%d;", rf.solName, rf.tag))
 			}
@@ -515,13 +505,19 @@ func inArray(s string, arr []string) bool {
 	return false
 }
 
-// return solidity code to decode this field. `useScratch` controls how
-// repeated length-delimited fields are written: when true, the dispatch
-// writes into a `_arr<tag>` scratch local with an `_cnt<tag>` counter that
-// `generateMsg` allocates ahead of the loop. When false (or the field is
-// not repeated), it writes directly into `m.<field>[cnts[<tag>]]` using the
-// classic `cntTags` pre-pass.
-func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string, useScratch bool) (code string) {
+// return solidity code to decode this field. `typelessScratch` controls how
+// the dispatch line for a repeated length-delimited field is shaped:
+//
+//   - `false` (inline-primitive element): write `_arr<tag>[_cnt<tag>] =
+//     <decoder>;` and increment the counter `unchecked`. The scratch is the
+//     real element-type array.
+//   - `true` (reference element): decode into a typed temp local first, then
+//     `mstore` the pointer/value into the typeless `uint256[]` scratch via
+//     assembly. The scratch is later aliased back to the target array type
+//     in `generateMsg`.
+//
+// Non-repeated fields are unaffected by `typelessScratch`.
+func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string, typelessScratch bool) (code string) {
 	// soltype could be uint256 or another message name
 	soltype = strings.TrimSuffix(soltype, "[]") // remove [] for array, no-op if doesn't have it
 	wire := getWiretype(*field.Type)
@@ -560,17 +556,21 @@ func getSolDecodeStr(field *descriptor.FieldDescriptorProto, soltype string, use
 	}
 
 	if isRepeated(field) {
-		if useScratch {
-			// _arr<tag>/_cnt<tag> are declared at the top of the decoder body
-			// (see generateMsg). The counter is bounded by the array length
-			// (the over-alloc upper bound) — unchecked is safe.
-			code = fmt.Sprintf("_arr%d[_cnt%d] = %s;\n", *field.Number, *field.Number, decfun)
+		// _arr<tag>/_cnt<tag> are declared at the top of the decoder body
+		// (see generateMsg). The counter is bounded by the over-alloc upper
+		// bound — unchecked is safe.
+		if typelessScratch {
+			// Decode into a typed temp local (Solidity needs the type so the
+			// stack value carries the right pointer/value width), then mstore
+			// into the uint256 scratch via assembly. shl(5, x) == mul(x, 32).
+			elementType := strings.TrimSuffix(soltype, "[]")
+			tempDecl := fmt.Sprintf("%s memory _v%d", elementType, *field.Number)
+			code = fmt.Sprintf("%s = %s;\n", tempDecl, decfun)
+			code += fmt.Sprintf("{XXX_INDENT}assembly (\"memory-safe\") { mstore(add(add(_arr%d, 32), shl(5, _cnt%d)), _v%d) }\n", *field.Number, *field.Number, *field.Number)
 			code += fmt.Sprintf("{XXX_INDENT}unchecked { _cnt%d++; }", *field.Number)
 		} else {
-			// cnts[N] is bounded by cntTags' first-pass count, which is bounded by
-			// the payload size — unchecked is safe.
-			code = fmt.Sprintf("m.%s[cnts[%d]] = %s;\n", toSolNaming(field.Name), *field.Number, decfun)
-			code += fmt.Sprintf("{XXX_INDENT}unchecked { cnts[%d]++; }", *field.Number)
+			code = fmt.Sprintf("_arr%d[_cnt%d] = %s;\n", *field.Number, *field.Number, decfun)
+			code += fmt.Sprintf("{XXX_INDENT}unchecked { _cnt%d++; }", *field.Number)
 		}
 	} else {
 		code = fmt.Sprintf("m.%s = %s;", toSolNaming(field.Name), decfun)

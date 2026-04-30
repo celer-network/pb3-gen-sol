@@ -22,9 +22,8 @@ library PbChainNew {
     function decOpenChannelRequest(bytes memory raw) internal pure returns (OpenChannelRequest memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -33,14 +32,22 @@ library PbChainNew {
             if (tag == 1) {
                 m.channelInitializer = buf.decBytes();
             } else if (tag == 2) {
-                m.sigs[cnts[2]] = buf.decBytes();
+                bytes memory _v2 = buf.decBytes();
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        bytes[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.sigs = _result2;
     } // end decoder OpenChannelRequest
 
     struct CooperativeWithdrawRequest {
@@ -55,9 +62,8 @@ library PbChainNew {
     {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -66,14 +72,22 @@ library PbChainNew {
             if (tag == 1) {
                 m.withdrawInfo = buf.decBytes();
             } else if (tag == 2) {
-                m.sigs[cnts[2]] = buf.decBytes();
+                bytes memory _v2 = buf.decBytes();
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        bytes[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.sigs = _result2;
     } // end decoder CooperativeWithdrawRequest
 
     struct CooperativeSettleRequest {
@@ -84,9 +98,8 @@ library PbChainNew {
     function decCooperativeSettleRequest(bytes memory raw) internal pure returns (CooperativeSettleRequest memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -95,14 +108,22 @@ library PbChainNew {
             if (tag == 1) {
                 m.settleInfo = buf.decBytes();
             } else if (tag == 2) {
-                m.sigs[cnts[2]] = buf.decBytes();
+                bytes memory _v2 = buf.decBytes();
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        bytes[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.sigs = _result2;
     } // end decoder CooperativeSettleRequest
 
     struct ResolvePayByConditionsRequest {
@@ -117,9 +138,8 @@ library PbChainNew {
     {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.hashPreimages = new bytes[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -128,14 +148,22 @@ library PbChainNew {
             if (tag == 1) {
                 m.condPay = buf.decBytes();
             } else if (tag == 2) {
-                m.hashPreimages[cnts[2]] = buf.decBytes();
+                bytes memory _v2 = buf.decBytes();
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        bytes[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.hashPreimages = _result2;
     } // end decoder ResolvePayByConditionsRequest
 
     struct SignedSimplexState {
@@ -146,9 +174,8 @@ library PbChainNew {
     function decSignedSimplexState(bytes memory raw) internal pure returns (SignedSimplexState memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -157,14 +184,22 @@ library PbChainNew {
             if (tag == 1) {
                 m.simplexState = buf.decBytes();
             } else if (tag == 2) {
-                m.sigs[cnts[2]] = buf.decBytes();
+                bytes memory _v2 = buf.decBytes();
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        bytes[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.sigs = _result2;
     } // end decoder SignedSimplexState
 
     struct SignedSimplexStateArray {
@@ -174,23 +209,30 @@ library PbChainNew {
     function decSignedSimplexStateArray(bytes memory raw) internal pure returns (SignedSimplexStateArray memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(1);
-        m.signedSimplexStates = new SignedSimplexState[](cnts[1]);
-        cnts[1] = 0;
+        uint256[] memory _arr1 = new uint256[](raw.length / 2);
+        uint256 _cnt1 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
         while (buf.hasMore()) {
             (tag, wire) = buf.decKey();
             if (tag == 1) {
-                m.signedSimplexStates[cnts[1]] = decSignedSimplexState(buf.decBytes());
+                SignedSimplexState memory _v1 = decSignedSimplexState(buf.decBytes());
+                assembly ("memory-safe") { mstore(add(add(_arr1, 32), shl(5, _cnt1)), _v1) }
                 unchecked {
-                    cnts[1]++;
+                    _cnt1++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        SignedSimplexState[] memory _result1;
+        assembly ("memory-safe") {
+            mstore(_arr1, _cnt1)
+            _result1 := _arr1
+        }
+        m.signedSimplexStates = _result1;
     } // end decoder SignedSimplexStateArray
 
     struct ChannelMigrationRequest {
@@ -201,9 +243,8 @@ library PbChainNew {
     function decChannelMigrationRequest(bytes memory raw) internal pure returns (ChannelMigrationRequest memory m) {
         PbNew.Buffer memory buf = PbNew.fromBytes(raw);
 
-        uint256[] memory cnts = buf.cntTags(2);
-        m.sigs = new bytes[](cnts[2]);
-        cnts[2] = 0;
+        uint256[] memory _arr2 = new uint256[](raw.length / 2);
+        uint256 _cnt2 = 0;
 
         uint256 tag;
         PbNew.WireType wire;
@@ -212,13 +253,21 @@ library PbChainNew {
             if (tag == 1) {
                 m.channelMigrationInfo = buf.decBytes();
             } else if (tag == 2) {
-                m.sigs[cnts[2]] = buf.decBytes();
+                bytes memory _v2 = buf.decBytes();
+                assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
-                    cnts[2]++;
+                    _cnt2++;
                 }
             } else {
                 buf.skipValue(wire); // skip value of unknown tag
             }
         }
+
+        bytes[] memory _result2;
+        assembly ("memory-safe") {
+            mstore(_arr2, _cnt2)
+            _result2 := _arr2
+        }
+        m.sigs = _result2;
     } // end decoder ChannelMigrationRequest
 }

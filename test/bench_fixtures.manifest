@@ -1,0 +1,15 @@
+# Bench fixture manifest. Each line: `<basename> <fully.qualified.MessageName>`.
+# `generate_sol_pb.sh` reads this and runs `protoc --encode=<msgname>` on the
+# matching `<basename>.textpb` in this directory.
+#
+# Comments and blank lines are skipped.
+
+bench_account_amt_pair entity.AccountAmtPair
+bench_token_distribution entity.TokenDistribution
+bench_conditional_pay entity.ConditionalPay
+bench_simplex_payment_channel entity.SimplexPaymentChannel
+bench_payment_channel_initializer entity.PaymentChannelInitializer
+bench_cooperative_withdraw_info entity.CooperativeWithdrawInfo
+bench_cooperative_settle_info entity.CooperativeSettleInfo
+bench_resolve_pay_request chain.ResolvePayByConditionsRequest
+bench_signed_simplex_state chain.SignedSimplexState

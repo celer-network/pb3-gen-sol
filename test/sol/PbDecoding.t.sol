@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0;
 
-import {PbA} from "../src/lib/PbA.sol";
-import {PbB} from "../src/lib/PbB.sol";
-import {PbMytest} from "../src/lib/PbMytest.sol";
+import {PbA} from "../lib/PbA.sol";
+import {PbB} from "../lib/PbB.sol";
+import {PbMytest} from "../lib/PbMytest.sol";
 
 import {TestBase} from "./utils/TestBase.sol";
 
@@ -285,6 +285,6 @@ contract PbDecodingTest is TestBase {
     }
 
     function _loadFixture(string memory name) internal returns (bytes memory) {
-        return vm.readFileBinary(string.concat("../fixtures/bin/", name));
+        return vm.readFileBinary(string.concat("fixtures/bin/", name));
     }
 }

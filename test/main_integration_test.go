@@ -17,7 +17,7 @@ func TestGeneratorFixtures(t *testing.T) {
 	}
 
 	rootDir := repoRoot(t)
-	fixtureDir := filepath.Join(rootDir, "test")
+	fixtureDir := filepath.Join(rootDir, "test", "proto", "unit")
 	includeDir := protocIncludeDir(t)
 	workDir := t.TempDir()
 	pluginPath := filepath.Join(workDir, "protoc-gen-sol")

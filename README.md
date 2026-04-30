@@ -80,8 +80,8 @@ Example:
 
 ```bash
 protoc \
-  --sol_out=msg=Msg1,msg=Msg2,importpb=true:test/solidity/src/lib \
-  test/test.proto test/a.proto test/b.proto
+  --sol_out=msg=Msg1,msg=Msg2,importpb=true:test/lib \
+  test/proto/unit/test.proto test/proto/unit/a.proto test/proto/unit/b.proto
 ```
 
 ## Development Workflow
@@ -92,7 +92,7 @@ Regenerate the checked-in test fixtures:
 bash test/generate_sol_pb.sh
 ```
 
-Human-readable fixture inputs live under `test/*.textpb`. The regeneration script writes binary protobuf fixtures into `test/fixtures/bin/` for Foundry to consume.
+Human-readable fixture inputs live under `test/textpb/{unit,bench}/*.textpb`. The regeneration script encodes them via `protoc` and writes binary `.pb` outputs into `test/fixtures/bin/` for Foundry to consume.
 
 Run Go validation:
 
@@ -115,7 +115,7 @@ go test ./generator
 Run Solidity validation:
 
 ```bash
-cd test/solidity
+cd test
 forge fmt --check
 forge build
 forge test -vv
@@ -123,11 +123,29 @@ forge test -vv
 
 ## Test Layout
 
-- `test/main_integration_test.go`: committed end-to-end regression test. It builds the root `protoc-gen-sol` binary, runs `protoc` against `test.proto`, `a.proto`, and `b.proto`, and asserts the generated Solidity contains the expected runtime hardening and output-shape invariants.
-- `generator/generator_test.go`: focused Go unit tests for generator-only behavior such as plugin parameter parsing and `soltype` option decoding and validation.
-- `test/solidity/test/PbDecoding.t.sol`: fixture-backed Solidity decoder regression suite that checks successful decodes and malformed-input reverts.
-- `test/*.textpb`: human-authored protobuf text fixtures.
-- `test/fixtures/bin/*.pb`: generated binary protobuf fixtures used by the Foundry suite.
+```
+test/
+├── main_integration_test.go      Go integration test (builds plugin, invokes protoc, asserts output shape)
+├── generate_sol_pb.sh            regenerates Solidity decoders + binary protobuf fixtures
+├── bench_fixtures.manifest       maps each bench textpb basename → its proto message type
+├── foundry.toml                  Foundry project config (this is the Foundry root)
+├── proto/
+│   ├── unit/                     test.proto, a.proto, b.proto — schemas used by the unit tests
+│   └── bench/                    chain.proto, entity.proto — AgentPay schemas used by the bench
+├── textpb/
+│   ├── unit/                     msg*.textpb, b.textpb — fixture sources for the unit tests
+│   └── bench/                    bench_*.textpb — fixture sources for the bench
+├── fixtures/bin/                 *.pb regenerated from textpb (gitignored)
+├── lib/                          generated Solidity decoder libraries (Foundry src)
+└── sol/                          Foundry test root
+    ├── PbDecoding.t.sol          decoder correctness + malformed-input revert tests
+    ├── utils/TestBase.sol        minimal hand-rolled assertEq helpers (no forge-std dep)
+    └── bench/                    decode-gas benchmark vs abi.encode/decode
+        ├── Bench.t.sol           paired pb_decX / abi_decX tests
+        └── benchmark.md          benchmark numbers + interpretation
+```
+
+`generator/generator_test.go` covers plugin parameter parsing, `soltype` option decoding, and other generator-only invariants.
 
 The integration test is intentionally committed because it is the cheapest end-to-end check that the plugin still builds, `protoc` still invokes it correctly, and the generated Solidity still carries the expected modernization and hardening changes.
 

@@ -31,7 +31,7 @@ jobs:
         run: bash test/generate_sol_pb.sh
 
       - name: Verify generated Solidity is up to date
-        run: git diff --exit-code -- test/solidity/src/lib
+        run: git diff --exit-code -- test/lib
 
   forge:
     runs-on: ubuntu-latest
@@ -59,16 +59,16 @@ jobs:
         run: bash test/generate_sol_pb.sh
 
       - name: Verify generated Solidity is up to date
-        run: git diff --exit-code -- test/solidity/src/lib
+        run: git diff --exit-code -- test/lib
 
       - name: Check formatting
-        working-directory: test/solidity
+        working-directory: test
         run: forge fmt --check
 
       - name: Build Solidity tests
-        working-directory: test/solidity
+        working-directory: test
         run: forge build
 
       - name: Run Solidity tests
-        working-directory: test/solidity
+        working-directory: test
         run: forge test -vv

@@ -1,0 +1,2 @@
+cond_pay: 'placeholder cond pay payload bytes'
+hash_preimages: ['preimage-one-32-bytes-of-content', 'preimage-two-32-bytes-of-content', 'preimage-three-32bytes-content']

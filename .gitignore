@@ -2,15 +2,12 @@ protoc-gen-sol
 .vscode
 .DS_Store
 
-# ignore generated protobuf and solidity fixtures
-test/*.pb
+# Generated protobuf binary fixtures (rebuilt via test/generate_sol_pb.sh)
 test/fixtures/bin/*.pb
 
-# solidity test gitignore
-test/solidity/node_modules/
-test/solidity/build/
-test/solidity/cache/
-test/solidity/out/
+# Foundry build artifacts (test/foundry.toml lives here)
+test/cache/
+test/out/
 
 archive/
 reviews

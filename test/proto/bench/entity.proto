@@ -50,7 +50,7 @@ message SimplexPaymentChannel {
   TokenTransfer transfer_to_peer = 4;
   // head of the idlist chain of all pending conditional pays.
   PayIdList pending_pay_ids = 5;
-  // The last resolve deadline of all pending conditonal pays.
+  // The last resolve deadline of all pending conditional pays.
   // confirmSettle must be called after all pending pays have been finalized,
   // namely all pending pays have been resolved in the pay registry,
   // or after the last_pay_resolve_deadline.
@@ -111,7 +111,7 @@ message ConditionalPay {
   // transfer_func.max_transfer.receiver.account is not needed for unicast payment
   TransferFunction transfer_func = 5;
   // resolve_deadline is the deadline for a cond_pay to be resolved on chain in the
-  // pay resgistry by either condition or vouched results, and the payment result
+  // pay registry by either condition or vouched results, and the payment result
   // is finalized after resolve_deadline.
   // Payment channel peers should apply a safe_margin for off-chain processing,
   // i.e., should take dispute action before [resolve_deadline - safe_margin]

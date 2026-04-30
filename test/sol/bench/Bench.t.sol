@@ -29,7 +29,7 @@ interface BenchVm {
  *
  *  Output is `<label> <payloadBytes> <gasUsed>` per test, surfaced via
  *  Foundry's console-log precompile (no forge-std dependency). Run with
- *  `forge test --match-path 'test/Bench.t.sol' -vv`.
+ *  `forge test --match-path 'sol/bench/Bench.t.sol' -vv`.
  */
 contract BenchTest {
     address private constant VM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));

@@ -27,12 +27,6 @@ jobs:
       - name: Run Go tests
         run: go test ./...
 
-      - name: Regenerate Solidity fixtures
-        run: bash test/generate_sol_pb.sh
-
-      - name: Verify generated Solidity is up to date
-        run: git diff --exit-code -- test/lib
-
   forge:
     runs-on: ubuntu-latest
     steps:

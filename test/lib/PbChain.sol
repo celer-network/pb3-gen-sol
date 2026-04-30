@@ -25,20 +25,21 @@ library PbChain {
         uint256[] memory _arr2 = new uint256[](raw.length / 2);
         uint256 _cnt2 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.channelInitializer = buf.decBytes();
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 bytes memory _v2 = buf.decBytes();
                 assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
                     _cnt2++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -65,20 +66,21 @@ library PbChain {
         uint256[] memory _arr2 = new uint256[](raw.length / 2);
         uint256 _cnt2 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.withdrawInfo = buf.decBytes();
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 bytes memory _v2 = buf.decBytes();
                 assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
                     _cnt2++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -101,20 +103,21 @@ library PbChain {
         uint256[] memory _arr2 = new uint256[](raw.length / 2);
         uint256 _cnt2 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.settleInfo = buf.decBytes();
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 bytes memory _v2 = buf.decBytes();
                 assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
                     _cnt2++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -141,20 +144,21 @@ library PbChain {
         uint256[] memory _arr2 = new uint256[](raw.length / 2);
         uint256 _cnt2 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.condPay = buf.decBytes();
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 bytes memory _v2 = buf.decBytes();
                 assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
                     _cnt2++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -177,20 +181,21 @@ library PbChain {
         uint256[] memory _arr2 = new uint256[](raw.length / 2);
         uint256 _cnt2 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.simplexState = buf.decBytes();
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 bytes memory _v2 = buf.decBytes();
                 assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
                     _cnt2++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -212,18 +217,18 @@ library PbChain {
         uint256[] memory _arr1 = new uint256[](raw.length / 2);
         uint256 _cnt1 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 SignedSimplexState memory _v1 = decSignedSimplexState(buf.decBytes());
                 assembly ("memory-safe") { mstore(add(add(_arr1, 32), shl(5, _cnt1)), _v1) }
                 unchecked {
                     _cnt1++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -246,20 +251,21 @@ library PbChain {
         uint256[] memory _arr2 = new uint256[](raw.length / 2);
         uint256 _cnt2 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.channelMigrationInfo = buf.decBytes();
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 bytes memory _v2 = buf.decBytes();
                 assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
                     _cnt2++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 

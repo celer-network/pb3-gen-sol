@@ -71,6 +71,12 @@ library Pb {
                 idx++;
                 v |= (b & 0x7F) << (i * 7);
                 if (b < 0x80) {
+                    // Bytes 0..8 cover bits 0..62 and are unconstrained by
+                    // the protobuf uint64 bound. The 10th byte (i == 9) can
+                    // only contribute bit 63, so its low 7 bits must be 0
+                    // or 1. Hoisting this check to the success path means
+                    // it runs once per varint instead of once per byte.
+                    if (i == 9) require(b < 2);
                     buf.idx = idx;
                     return v;
                 }

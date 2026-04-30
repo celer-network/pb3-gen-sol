@@ -252,10 +252,17 @@ func (g *Generator) generateHeader(f fdes) {
 		g.P(`import "./Pb.sol";`)
 	}
 	for _, i := range f.Dependency {
-		if i != "google/protobuf/descriptor.proto" {
-			// require proto file name and package name are same
-			g.P(`import "./`, getSolFile(strings.TrimSuffix(i, ".proto")), `";`)
+		if i == "google/protobuf/descriptor.proto" {
+			continue
 		}
+		// The output filename is derived from the dependency's declared
+		// proto package, not from its file path. Looking the package up
+		// here keeps the import line consistent with the file the other
+		// proto's codegen actually emitted, even when the path uses `/`
+		// segments (e.g. `foo/bar.proto`) and the package uses `.`
+		// segments (e.g. `foo.bar`).
+		depPkg := g.lookupDepPackage(i)
+		g.P(`import "./`, getSolFile(depPkg), `";`)
 	}
 	g.P()
 	g.P("/**")
@@ -265,6 +272,26 @@ func (g *Generator) generateHeader(f fdes) {
 	g.P(" *  regenerate via `pb3-gen-sol`.")
 	g.P(" */")
 	g.P("library ", getSolLib(*f.Package), " {")
+}
+
+// lookupDepPackage returns the proto `package` declared by the dependency
+// whose file path is `depPath`. Falls back to the legacy path-based name
+// (`foo/bar.proto` → `foo/bar`) if the descriptor is not present in the
+// request — e.g. running the plugin with a partial descriptor set. When a
+// package is found, getSolFile/getSolLib will normalize multi-segment
+// names like `foo.bar` to `PbFooBar` so the emitted import filename
+// always matches the file the dependency's own codegen produces.
+func (g *Generator) lookupDepPackage(depPath string) string {
+	for _, pf := range g.Request.ProtoFile {
+		if pf.GetName() == depPath {
+			pkg := pf.GetPackage()
+			if pkg != "" {
+				return pkg
+			}
+			break
+		}
+	}
+	return strings.TrimSuffix(depPath, ".proto")
 }
 
 func standaloneRuntimeContent() string {
@@ -365,6 +392,15 @@ var inlinePrimitiveSolTypes = map[string]bool{
 func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string) {
 	// map from tag(field number) to its decoder solidity code string
 	tag2dec := make(map[int]string)
+	// Pre-shifted dispatch key per known tag: `(tag << 3) | wire`. The
+	// dispatch loop reads the raw key varint and compares against these
+	// constants, which folds the per-field wire-type check into the same
+	// EQ that selects the branch. A payload using a legal-but-wrong wire
+	// type for a known tag falls through to the unknown-tag path and is
+	// skipped per proto3 semantics — strictly safer than the pre-fix
+	// behavior (which would have decoded with garbled data) and cheaper
+	// than emitting a separate `require(wire == ...)` per branch.
+	tag2key := make(map[int]int)
 
 	g.P("struct ", m.Name, " {")
 	g.In()
@@ -372,6 +408,7 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 	for _, f := range m.Field {
 		t := getSolType(f, g.extnum, currentPkg, knownPkgs)
 		g.P(t, " ", toSolNaming(f.Name), ";", "   // tag: ", f.Number)
+		tag2key[int(*f.Number)] = (int(*f.Number) << 3) | expectedWireNum(f)
 		if isRepeated(f) && (getWiretype(*f.Type) == WireLendel) {
 			elementType := strings.TrimSuffix(t, "[]")
 			rf := repeatedField{
@@ -409,26 +446,30 @@ func (g *Generator) generateMsg(m msgdes, currentPkg string, knownPkgs []string)
 	if len(repeated) > 0 {
 		g.P()
 	}
-	g.P("uint256 tag;")
-	g.P("Pb.WireType wire;")
+	// Dispatch reads the raw protobuf key varint (`(tag << 3) | wire`)
+	// and compares it against pre-shifted constants. Folding tag+wire
+	// into one EQ avoids the per-branch wire-type require and drops the
+	// `decKey` split/cast. A known tag with the wrong wire falls through
+	// to the unknown-tag path and is skipped per proto3 semantics.
+	g.P("uint256 key;")
 	g.P("while (buf.hasMore()) {")
 	g.In()
-	g.P("(tag, wire) = buf.decKey();")
+	g.P("key = buf.decVarint();")
 	if len(stags) == 0 {
-		g.P("buf.skipValue(wire); // skip value of unknown tag")
+		g.P("buf.skipValue(Pb.WireType(key & 7)); // skip value of unknown tag")
 	} else {
 		for index, k := range stags {
 			if index == 0 {
-				g.P("if (tag == ", k, ") {")
+				g.P("if (key == ", tag2key[k], ") { // tag ", k)
 			} else {
-				g.P("else if (tag == ", k, ") {")
+				g.P("else if (key == ", tag2key[k], ") { // tag ", k)
 			}
 			g.In()
 			g.P(strings.Replace(tag2dec[k], "{XXX_INDENT}", g.indent, -1))
 			g.Out()
 			g.P("}")
 		}
-		g.P("else { buf.skipValue(wire); } // skip value of unknown tag")
+		g.P("else { buf.skipValue(Pb.WireType(key & 7)); } // unknown tag or wrong wire")
 	}
 	g.Out()
 	g.P("}")
@@ -467,6 +508,29 @@ func minWireSize(soltype string) int {
 		return 1 + 1 + 20
 	}
 	return 1 + 1 + 0
+}
+
+// expectedWireNum returns the protobuf wire-type number (0..5) that a
+// known field's tag must arrive with on the wire.
+//
+//   - Repeated fields are always LengthDelim (2): packed scalars wrap
+//     their elements in a single length-delimited payload, and repeated
+//     bytes/string/message fields appear as one length-delimited
+//     occurrence per element. (Unpacked repeated scalars are not
+//     supported by this generator.)
+//   - Non-repeated varint scalars (uint32, uint64, bool, enum, and the
+//     `uint` soltype) decode with Varint (0).
+//   - Non-repeated length-delimited fields (bytes, string, embedded
+//     message, and the bytes-backed soltypes address / bytes32 / uint256)
+//     decode with LengthDelim (2).
+func expectedWireNum(f *descriptor.FieldDescriptorProto) int {
+	if isRepeated(f) {
+		return 2 // LengthDelim
+	}
+	if getWiretype(*f.Type) == WireVarint {
+		return 0 // Varint
+	}
+	return 2 // LengthDelim
 }
 
 // getSolFieldSoltype returns the field's `(soltype)` extension value if

@@ -28,24 +28,27 @@ library PbB {
         uint256[] memory _arr2 = new uint256[](raw.length / 2);
         uint256 _cnt2 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.i = PbA.decA(buf.decBytes());
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 PbA.A memory _v2 = PbA.decA(buf.decBytes());
                 assembly ("memory-safe") { mstore(add(add(_arr2, 32), shl(5, _cnt2)), _v2) }
                 unchecked {
                     _cnt2++;
                 }
-            } else if (tag == 3) {
+            } else if (key == 24) {
+                // tag 3
                 m.e = PbA.MyEnum(buf.decVarint());
-            } else if (tag == 4) {
+            } else if (key == 34) {
+                // tag 4
                 m.elist = PbA.MyEnums(buf.decPacked());
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 

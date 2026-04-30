@@ -135,6 +135,30 @@ contract PbDecodingTest is TestBase {
         this.decodeMsg1(hex"320180");
     }
 
+    function testIgnoresWrongWireTypeOnKnownTag() external pure {
+        // Tag 1 is declared as uint32 (varint, wire 0). The bytes below encode
+        // tag 1 with wire LengthDelim (2): (1 << 3) | 2 = 0x0a, length = 0.
+        // The dispatch matches on (tag << 3) | wire, so this key (0x0a)
+        // does not match the known key for f1 (0x08). It falls through to
+        // the unknown-tag path and is skipped per proto3 semantics, leaving
+        // f1 at its default zero — strictly safer than the pre-fix behavior
+        // (which would have decoded the empty payload as f1 = 0 anyway, but
+        // for non-empty payloads would have produced garbled values).
+        PbMytest.Msg1 memory m = PbMytest.decMsg1(hex"0a00");
+        assertEq(uint256(m.f1), 0);
+    }
+
+    function testRejectsOversizedVarint() external {
+        // Tag 2 is uint64 (varint, wire 0): 0x10. Then a 10-byte varint:
+        // 9 continuation bytes 0x80 followed by terminating byte 0x02. The
+        // 10th byte's low 7 bits encode 2, which would shift to bit 64 and
+        // overflow the protobuf uint64 range. The runtime must reject it
+        // rather than silently truncating to 0.
+        bytes memory raw = bytes.concat(hex"10", hex"808080808080808080", hex"02");
+        vm.expectRevert();
+        this.decodeMsg1(raw);
+    }
+
     function testRejectsInvalidWireTypes() external {
         vm.expectRevert();
         this.decodeMsg1(hex"0e");

@@ -34,14 +34,14 @@ library PbA {
     function decA(bytes memory raw) internal pure returns (A memory m) {
         Pb.Buffer memory buf = Pb.fromBytes(raw);
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 8) {
+                // tag 1
                 m.f1 = uint64(buf.decVarint());
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
     } // end decoder A

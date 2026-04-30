@@ -49,40 +49,49 @@ library PbMytest {
         uint256[] memory _arr10 = new uint256[](raw.length / 2);
         uint256 _cnt10 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 8) {
+                // tag 1
                 m.f1 = uint32(buf.decVarint());
-            } else if (tag == 2) {
+            } else if (key == 16) {
+                // tag 2
                 m.f2 = uint64(buf.decVarint());
-            } else if (tag == 3) {
+            } else if (key == 24) {
+                // tag 3
                 m.f3 = Pb._bool(buf.decVarint());
-            } else if (tag == 4) {
+            } else if (key == 34) {
+                // tag 4
                 m.f4 = buf.decBytes();
-            } else if (tag == 5) {
+            } else if (key == 42) {
+                // tag 5
                 m.f5 = string(buf.decBytes());
-            } else if (tag == 6) {
+            } else if (key == 50) {
+                // tag 6
                 m.f6 = Pb.uint32s(buf.decPacked());
-            } else if (tag == 7) {
+            } else if (key == 58) {
+                // tag 7
                 m.f7 = Pb.uint64s(buf.decPacked());
-            } else if (tag == 8) {
+            } else if (key == 66) {
+                // tag 8
                 m.f8 = Pb.bools(buf.decPacked());
-            } else if (tag == 9) {
+            } else if (key == 74) {
+                // tag 9
                 bytes memory _v9 = buf.decBytes();
                 assembly ("memory-safe") { mstore(add(add(_arr9, 32), shl(5, _cnt9)), _v9) }
                 unchecked {
                     _cnt9++;
                 }
-            } else if (tag == 10) {
+            } else if (key == 82) {
+                // tag 10
                 string memory _v10 = string(buf.decBytes());
                 assembly ("memory-safe") { mstore(add(add(_arr10, 32), shl(5, _cnt10)), _v10) }
                 unchecked {
                     _cnt10++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -127,48 +136,59 @@ library PbMytest {
         bytes32[] memory _arr10 = new bytes32[](raw.length / 34);
         uint256 _cnt10 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 8) {
+                // tag 1
                 m.num = uint8(buf.decVarint());
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 m.addr = buf.decAddress();
-            } else if (tag == 3) {
+            } else if (key == 26) {
+                // tag 3
                 m.addrPayable = buf.decAddress();
-            } else if (tag == 4) {
+            } else if (key == 34) {
+                // tag 4
                 m.amt = buf.decUint256();
-            } else if (tag == 5) {
+            } else if (key == 42) {
+                // tag 5
                 m.hash = buf.decBytes32();
-            } else if (tag == 6) {
+            } else if (key == 50) {
+                // tag 6
                 m.nums = Pb.uint8s(buf.decPacked());
-            } else if (tag == 7) {
+            } else if (key == 58) {
+                // tag 7
                 _arr7[_cnt7] = buf.decAddress();
                 unchecked {
                     _cnt7++;
                 }
-            } else if (tag == 8) {
+            } else if (key == 66) {
+                // tag 8
                 _arr8[_cnt8] = buf.decAddress();
                 unchecked {
                     _cnt8++;
                 }
-            } else if (tag == 9) {
+            } else if (key == 74) {
+                // tag 9
                 _arr9[_cnt9] = buf.decUint256();
                 unchecked {
                     _cnt9++;
                 }
-            } else if (tag == 10) {
+            } else if (key == 82) {
+                // tag 10
                 _arr10[_cnt10] = buf.decBytes32();
                 unchecked {
                     _cnt10++;
                 }
-            } else if (tag == 11) {
+            } else if (key == 88) {
+                // tag 11
                 m.ts = buf.decVarint();
-            } else if (tag == 12) {
+            } else if (key == 98) {
+                // tag 12
                 m.tss = buf.decPacked();
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -197,28 +217,31 @@ library PbMytest {
         uint256[] memory _arr4 = new uint256[](raw.length / 2);
         uint256 _cnt4 = 0;
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 10) {
+                // tag 1
                 m.m1 = decMsg1(buf.decBytes());
-            } else if (tag == 2) {
+            } else if (key == 18) {
+                // tag 2
                 m.m2 = decMsg2(buf.decBytes());
-            } else if (tag == 3) {
+            } else if (key == 26) {
+                // tag 3
                 Msg1 memory _v3 = decMsg1(buf.decBytes());
                 assembly ("memory-safe") { mstore(add(add(_arr3, 32), shl(5, _cnt3)), _v3) }
                 unchecked {
                     _cnt3++;
                 }
-            } else if (tag == 4) {
+            } else if (key == 34) {
+                // tag 4
                 Msg2 memory _v4 = decMsg2(buf.decBytes());
                 assembly ("memory-safe") { mstore(add(add(_arr4, 32), shl(5, _cnt4)), _v4) }
                 unchecked {
                     _cnt4++;
                 }
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
 
@@ -245,18 +268,20 @@ library PbMytest {
     function decMsg4(bytes memory raw) internal pure returns (Msg4 memory m) {
         Pb.Buffer memory buf = Pb.fromBytes(raw);
 
-        uint256 tag;
-        Pb.WireType wire;
+        uint256 key;
         while (buf.hasMore()) {
-            (tag, wire) = buf.decKey();
-            if (tag == 1) {
+            key = buf.decVarint();
+            if (key == 8) {
+                // tag 1
                 m.enum1 = EnumExample(buf.decVarint());
-            } else if (tag == 2) {
+            } else if (key == 16) {
+                // tag 2
                 m.enum2 = EnumExample(buf.decVarint());
-            } else if (tag == 3) {
+            } else if (key == 26) {
+                // tag 3
                 m.enums = EnumExamples(buf.decPacked());
             } else {
-                buf.skipValue(wire); // skip value of unknown tag
+                buf.skipValue(Pb.WireType(key & 7)); // unknown tag or wrong wire
             }
         }
     } // end decoder Msg4

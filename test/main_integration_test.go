@@ -83,6 +83,9 @@ func TestGeneratorFixtures(t *testing.T) {
 		"function decAddress(Buffer memory buf)",
 		"function decBytes32(Buffer memory buf)",
 		"function decUint256(Buffer memory buf)",
+		// 10th-byte uint64-range guard on decVarint, hoisted to the
+		// terminator path so it runs once per varint instead of per byte.
+		"if (i == 9) require(b < 2);",
 	} {
 		if !strings.Contains(pbRuntime, want) {
 			t.Fatalf("expected Pb.sol to contain %q", want)
@@ -116,6 +119,13 @@ func TestGeneratorFixtures(t *testing.T) {
 		"m.addrPayable = buf.decAddress();",
 		"m.amt = buf.decUint256();",
 		"m.hash = buf.decBytes32();",
+		// Combined-key dispatch: key = (tag << 3) | wire. The dispatch
+		// folds the wire-type check into the same EQ that selects the
+		// branch, replacing the prior `(tag, wire) = decKey()` split and
+		// the per-branch `require(wire == ...)`. The unknown-tag path
+		// extracts wire from the low 3 bits of key.
+		"key = buf.decVarint();",
+		"buf.skipValue(Pb.WireType(key & 7));",
 		// Inline-primitive repeated fields use direct-typed scratch + shrink.
 		"address[] memory _arr7 = new address[](raw.length / 22);",
 		"address payable[] memory _arr8 = new address payable[](raw.length / 22);",

@@ -32,21 +32,21 @@ assertion calls sit outside the metering window.
 
 ## Latest numbers
 
-Captured 2026-04-30 with `forge` 1.5.1 / `solc` 0.8.30, optimizer on at
+Captured 2026-04-29 with `forge` 1.5.1 / `solc` 0.8.30, optimizer on at
 200 runs. Refresh by re-running the bench when runtime/generator
 changes meaningfully.
 
 | Path                                     | Pb bytes | Pb gas  | ABI bytes | ABI gas | Ratio  |
 | ---------------------------------------- | -------: | ------: | --------: | ------: | -----: |
-| `entity.AccountAmtPair`                  |       27 |   2,285 |        64 |     428 |  5.34× |
-| `entity.TokenDistribution`               |       84 |  11,196 |       288 |   1,941 |  5.77× |
-| `entity.ConditionalPay`                  |      185 |  27,009 |     1,376 |   6,550 |  4.12× |
-| `entity.SimplexPaymentChannel`           |      182 |  15,343 |       512 |   2,272 |  6.75× |
-| `entity.PaymentChannelInitializer`       |       72 |  13,848 |       416 |   2,231 |  6.21× |
-| `entity.CooperativeWithdrawInfo`         |       69 |   6,993 |       192 |     646 | 10.83× |
-| `entity.CooperativeSettleInfo`           |       99 |  11,039 |       320 |   1,614 |  6.84× |
-| `chain.ResolvePayByConditionsRequest`    |      136 |   6,056 |       512 |   2,699 |  2.24× |
-| `chain.SignedSimplexState`               |      175 |   5,190 |       544 |   2,235 |  2.32× |
+| `entity.AccountAmtPair`                  |       27 |   2,046 |        64 |     428 |  4.78× |
+| `entity.TokenDistribution`               |       84 |  10,124 |       288 |   1,941 |  5.21× |
+| `entity.ConditionalPay`                  |      185 |  24,637 |     1,376 |   6,550 |  3.76× |
+| `entity.SimplexPaymentChannel`           |      182 |  13,919 |       512 |   2,272 |  6.13× |
+| `entity.PaymentChannelInitializer`       |       72 |  12,537 |       416 |   2,231 |  5.62× |
+| `entity.CooperativeWithdrawInfo`         |       69 |   6,281 |       192 |     646 |  9.72× |
+| `entity.CooperativeSettleInfo`           |       99 |   9,971 |       320 |   1,614 |  6.18× |
+| `chain.ResolvePayByConditionsRequest`    |      136 |   5,583 |       512 |   2,699 |  2.07× |
+| `chain.SignedSimplexState`               |      175 |   4,834 |       544 |   2,235 |  2.16× |
 
 `Ratio = Pb gas / ABI gas`. Higher means the protobuf decode is more
 expensive relative to ABI on that shape.
@@ -61,7 +61,7 @@ scalars as varints; ABI uses fixed 32-byte slot widths in the head and
 offset-tail layout for dynamic fields. Smaller wire size means cheaper
 calldata at submission time.
 
-**Decode gas.** ABI decode costs 2.2–10.8× less gas than the protobuf
+**Decode gas.** ABI decode costs 2.1–9.7× less gas than the protobuf
 decoder on these shapes. ABI's wire format is essentially a
 pre-laid-out memory layout — decoding is mostly pointer arithmetic
 over fixed-width slots. Protobuf's wire format is length-prefix-
@@ -71,7 +71,7 @@ per-type validation) regardless of how much actual data each field
 carries.
 
 The two effects move in opposite directions, and neither dominates
-universally. The 2.2–10.8× spread in the ratio reflects each message's
+universally. The 2.1–9.7× spread in the ratio reflects each message's
 mix of bulk-bytes content (where Pb amortizes per-field cost across
 copies) versus many small fixed-width fields (where Pb pays per-field
 overhead with no amortization, and ABI just reads inline head slots).
@@ -83,14 +83,14 @@ overhead with no amortization, and ABI just reads inline head slots).
 The total cost per call is `decode_gas + payload_bytes × calldata_gas_per_byte`.
 
 **L1 mainnet** (16 gas per non-zero calldata byte): the two encodings
-come out roughly comparable on most paths — ABI's 2–11× decode-gas
+come out roughly comparable on most paths — ABI's 2–10× decode-gas
 advantage is largely offset by its 2.4–7.6× larger wire size. For
 mostly-fixed-width-field messages like `CooperativeWithdrawInfo`, ABI
-wins by a few thousand gas per call (~8.1k vs ~3.7k). For
+wins by a few thousand gas per call (~7.4k vs ~3.7k). For
 bulk-bytes-wrapped messages like `SignedSimplexState`, protobuf wins
-(~8.0k vs ~10.9k) because its wire-size advantage outweighs the
+(~7.6k vs ~10.9k) because its wire-size advantage outweighs the
 decode-gas penalty. For mixed-shape messages like `ConditionalPay`,
-the totals come within a few percent of each other (~30k either way).
+the totals come within ~5% of each other (~27.6k vs ~28.6k).
 
 **L2 rollups** have a much higher effective per-byte cost because
 calldata is posted to L1 for data availability. The 0.13–0.42×

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protowire"
+	"google.golang.org/protobuf/proto"
 	descriptor "google.golang.org/protobuf/types/descriptorpb"
 )
 
@@ -110,6 +111,58 @@ func TestGetSolTypeResolvesQualifiedNames(t *testing.T) {
 				t.Fatalf("expected Solidity type %q, got %q", tt.want, got)
 			}
 		})
+	}
+}
+
+func TestImportPathDerivedFromDependencyPackage(t *testing.T) {
+	t.Parallel()
+
+	// A dependency whose proto path uses `/` separators while its package
+	// uses `.` separators. The legacy code derived the import filename
+	// from the path (yielding `PbFoobar.sol`), but the dependency's own
+	// codegen emits `PbFooBar.sol`. The import line must match the
+	// dependency's actual filename.
+	depPath := "foo/bar.proto"
+	depPkg := "foo.bar"
+	depFile := &descriptor.FileDescriptorProto{
+		Name:    proto.String(depPath),
+		Package: proto.String(depPkg),
+		Syntax:  proto.String("proto3"),
+	}
+
+	mainPath := "main.proto"
+	mainPkg := "main"
+	mainFile := &descriptor.FileDescriptorProto{
+		Name:       proto.String(mainPath),
+		Package:    proto.String(mainPkg),
+		Syntax:     proto.String("proto3"),
+		Dependency: []string{depPath},
+	}
+
+	g := New()
+	g.Request.ProtoFile = []*descriptor.FileDescriptorProto{depFile, mainFile}
+	g.generateHeader(mainFile)
+
+	output := g.String()
+	wantImport := `import "./PbFooBar.sol";`
+	if !strings.Contains(output, wantImport) {
+		t.Fatalf("expected import %q, got:\n%s", wantImport, output)
+	}
+	// Sanity: the legacy path-derived form must not appear.
+	if strings.Contains(output, `PbFoobar`) {
+		t.Fatalf("did not expect legacy path-derived filename, got:\n%s", output)
+	}
+}
+
+func TestLookupDepPackageFallsBackToPath(t *testing.T) {
+	t.Parallel()
+
+	// Without a matching descriptor in the request, lookup falls back to
+	// the path-with-extension-trimmed legacy behavior. Keeps the codegen
+	// usable when invoked with a partial descriptor set.
+	g := New()
+	if got := g.lookupDepPackage("foo/bar.proto"); got != "foo/bar" {
+		t.Fatalf("expected fallback %q, got %q", "foo/bar", got)
 	}
 }
 

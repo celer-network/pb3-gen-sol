@@ -36,9 +36,55 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [x] Hardened-fast `decVarint` landed 2026-04-29. Every path is now 12–14% faster than the legacy `Old` runtime; +1.4% aggregate regression replaced with a −12.7% aggregate improvement.
 - [x] Fixed-width readers (`decAddress` / `decBytes32` / `decUint256`) landed 2026-04-29. Cumulative −18.9% aggregate vs `Old`; every path 16–25% faster than legacy.
 - [x] Runtime loop `unchecked` cleanup landed 2026-04-29. Cumulative −31.7% aggregate vs `Old`; every path 30–37% faster than legacy.
-- [x] `cntTags` single-pass for inline-primitive repeated fields (Phase 3 §8) landed 2026-04-29. Cumulative **−34.7% aggregate vs `Old`**; every path 30–48% faster than legacy.
-- [ ] Open follow-up: single-pass for reference-typed repeated fields via `uint256[]` scratch + assembly cast. Estimated upside ~500–1,500 gas per path that doesn't already benefit. Tracked in §8 above.
-- [ ] Other Phase 2 / 3 levers (calldata-native runtime, partial decoders) remain available — evaluate against the current baseline before scoping; headroom is shrinking.
+- [x] `cntTags` single-pass for inline-primitive repeated fields (Phase 3 §8, first half) landed 2026-04-29. Cumulative **−34.7% aggregate vs `Old`**; every path 30–48% faster than legacy.
+
+## Open Work, Prioritized
+
+This is the recommended order to take on what's left. The execution
+order at the bottom of this document is the canonical to-do list; the
+buckets below explain why.
+
+### Tier A — close out the contained wins
+
+- **§8 second half: single-pass for reference-typed repeated fields.**
+  Natural extension of what just landed. Same generator infrastructure,
+  no API change, no Buffer redesign. Trick: allocate a typeless
+  `uint256[]` scratch (no per-slot zero-init of sub-allocations), write
+  pointers via `assembly mstore`, alias to the target array type at the
+  end. Estimated upside ~500–1,500 gas per path that doesn't already
+  benefit. Worth doing before any structural change.
+
+### Tier B — structural wins, do behind a Buffer redesign
+
+These two are different consumers of the same idea: stop copying bytes
+that are already addressable. Worth designing the new Buffer surface
+once, then applying it to both.
+
+- **§6: zero-copy nested submessage decoding.** Biggest remaining
+  upside on AgentPay because every entrypoint has nested decodes.
+  Replace `decX(buf.decBytes())` with an offset-based slice into the
+  parent buffer, no allocation. Risk: the runtime currently assumes a
+  freshly-owned `bytes memory` per nested call; the new shape needs
+  careful boundary checking.
+- **§5: calldata-native runtime.** Saves the calldata→memory copy on
+  every external entrypoint. Lower upside per call than §6 (one copy
+  per top-level decode vs many per nested decode), but compounds with
+  §6 once they share a Buffer redesign.
+
+### Tier C — measure first, only if data justifies
+
+- **§7: partial decoders for hot paths.** Real upside, but adds
+  generator surface and per-path generated code. Should be driven by
+  measured hot paths in the consuming contract, not preemptively.
+- **§4: packed repeated decoding tightening.** Current bench shows
+  packed paths are not material on AgentPay (`uint8s`/`uint32s`/etc.
+  are barely exercised). Defer until a non-AgentPay schema demands it.
+
+### Tier D — application-side, not generator
+
+- **§9 / §10: keep opaque bytes opaque, prefer partial decode adoption
+  in agent-pay-contracts.** These are choices made in the consuming
+  contract, not the generator. Useful but out of scope for this repo.
 
 ## Lessons From The Phase 1–§8 Workstream
 
@@ -207,19 +253,28 @@ Result vs the post-§2 baseline (full table in [benchmarks/baseline.md](./benchm
 
 Why this was bigger than the "small improvement" expectation: Solidity 0.8's per-arithmetic overflow checks cost ~30–40 gas, and the runtime collectively runs hundreds of iterations per `decConditionalPay` decode (cntTags + actual decode each scan all fields, decVarint runs for every tag and every length prefix and every value, and `cnts[N]++` fires once per repeated-field element in nested messages). Each individually small check compounds.
 
-### 4. Tighten packed repeated decoding only if benchmarks justify it
+### 4. Tighten packed repeated decoding — **deferred (low priority)**
 
-- [ ] Measure whether packed repeated fields still matter after the `decVarint` rewrite.
+- [ ] Measure whether packed repeated fields still matter on a non-AgentPay schema before scoping further work.
 - [ ] If they do, evaluate whether a tighter upper bound or a specialized packed path can reduce memory cost without reintroducing a second pass or copy.
 - [ ] Keep the current semantics for packed enum arrays and packed integer arrays.
 
-Why this matters:
+Status:
 
-- The worst packed-field overhead was already removed, so any further work here should be benchmark-driven.
+- The benchmark currently has no path where `decPacked` dominates the
+  cost. AgentPay messages use `uint64`/`uint32`/`uint8` repeated fields
+  only marginally (primarily in `Msg1`/`Msg2` test fixtures, not in the
+  representative paths). The headline `decPacked` win — single allocation
+  + in-place shrink — already shipped before Phase 1.
 
-Expected impact:
+When to revisit:
 
-- Small improvement.
+- A consumer schema introduces a hot path that decodes a long packed
+  varint array.
+- A future profile shows `decPacked` allocations dominating any path
+  in the bench.
+
+Until either of those happens, leave this item dormant.
 
 ## Phase 2: Medium-Risk Structural Improvements
 
@@ -347,15 +402,24 @@ Why this matters:
 
 ## Suggested Execution Order
 
+This order has been revised post-§8 based on what the inline-primitive
+work actually shipped. Earlier drafts put `cntTags` single-pass after
+calldata-native and zero-copy nested because it sat under "Phase 3"; in
+practice the inline-primitive half was contained, mechanical, and
+landed cleanly inside the Phase 1 risk envelope. The remaining work is
+re-prioritized by upside × risk against the current
+[baseline](./benchmarks/baseline.md).
+
 - [x] 1. Build the benchmark harness and record baselines.
 - [x] 2. Rework `decVarint` with benchmarked hardened fast paths.
 - [x] 3. Implement fixed-width readers and wire them into codegen.
 - [x] 4. Apply small runtime loop cleanups that show clear benchmark wins.
-- [x] 5. `cntTags` single-pass for inline-primitive repeated fields (the higher-confidence half of §8).
-- [ ] 6. Prototype a calldata-native runtime path and measure it.
-- [ ] 7. Prototype zero-copy nested submessage decoding and measure it.
-- [ ] 8. Single-pass for reference-typed repeated fields (the second half of §8).
-- [ ] 9. If still justified by data, pursue partial decoders for the top 1 to 3 hot paths.
+- [x] 5. `cntTags` single-pass for inline-primitive repeated fields.
+- [ ] 6. **Single-pass for reference-typed repeated fields (close out §8).** Contained extension of what just landed; no API change. Estimated upside ~500–1,500 gas per affected path.
+- [ ] 7. **Prototype zero-copy nested submessage decoding (§6).** Biggest remaining structural upside on agent-pay (every entrypoint has nested decodes). Requires a Buffer redesign — risky.
+- [ ] 8. **Prototype a calldata-native runtime path (§5).** Builds on the same Buffer redesign as zero-copy nested. Saves the initial calldata→memory copy on every external entrypoint.
+- [ ] 9. If measured hot paths justify, pursue partial decoders (§7).
+- [ ] 10. Tighten packed repeated decoding (§4) only if a schema beyond the AgentPay surface demands it. The current bench shows packed paths are not material on the representative paths.
 
 ## Change Tracking
 

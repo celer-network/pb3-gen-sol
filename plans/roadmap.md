@@ -10,37 +10,66 @@ Use this roadmap together with the detailed execution plans:
 
 ## Active Workstreams
 
-### 1. Benchmark Harness and Hot-Path Gas Work
+### 1. Benchmark Harness and Hot-Path Gas Work — **substantially complete**
 
-Status: planned, high priority.
+Status: Phase 1 (`decVarint` fast path, fixed-width readers, `unchecked`
+loop cleanup) and the inline-primitive half of Phase 3 §8 (`cntTags`
+single-pass for `bytes32` / `address` / `uint256` repeated fields) all
+shipped 2026-04-29. The current `New` runtime is **30–48% faster than
+the frozen `agent-pay-contracts` runtime** on every measured path
+(−34.7% aggregate). See
+[benchmarks/baseline.md](./benchmarks/baseline.md) for the full table.
 
 Primary tracking: [gas-optimization-plan.md](./gas-optimization-plan.md)
 
-Scope:
+Remaining within this workstream:
 
-- Add the Foundry benchmark harness and store baseline measurements.
-- Rework `decVarint` only behind measurement, while preserving current malformed-input behavior.
-- Add fixed-width readers for bytes-backed primitives such as `address`, `bytes32`, and bytes-backed `uint256`.
-- Apply small runtime loop cleanups only when benchmarks show a real win.
+- Single-pass for **reference-typed** repeated fields (`bytes` / `string`
+  / embedded struct) via a typeless `uint256[]` scratch + assembly
+  alias. Closes out §8. Estimated upside ~500–1,500 gas per affected
+  path. Recommended next step before any structural redesign — see
+  Tier A in the gas plan.
 
 Exit criteria:
 
-- Benchmark baselines exist for representative decode paths.
-- `decVarint` improvements are measured, not assumed.
-- Hot-path gas work preserves deterministic malformed-input behavior.
+- [x] Benchmark baselines exist for representative decode paths.
+- [x] `decVarint` improvements measured, not assumed.
+- [x] Hot-path gas work preserves deterministic malformed-input behavior.
+- [x] CI regenerates `bench/new/` and fails on drift.
+- [ ] §8 second half (reference-type single-pass) lands or is explicitly closed as not worth the complexity.
 
-### 2. Structural Runtime Optimization
+### 2. Structural Runtime Optimization — **open**
 
-Status: planned, medium priority.
+Status: planned, medium priority. The two largest remaining levers
+share a common precondition: a Buffer redesign that supports both
+calldata-backed reads and offset-based slicing into a parent buffer.
 
 Primary tracking: [gas-optimization-plan.md](./gas-optimization-plan.md)
 
-Scope:
+Recommended order (revised post-§8):
 
-- Evaluate a calldata-native decode path.
-- Evaluate zero-copy or lower-copy nested submessage decoding.
-- Add partial decoders only for measured hot paths that justify the extra generated surface.
-- Revisit repeated-field strategy, including `cntTags` double-pass cost and any further packed-field tightening, only after the higher-confidence wins land.
+1. **Zero-copy nested submessage decoding (§6).** Biggest remaining
+   upside on AgentPay because every entrypoint has nested decodes.
+   Replace `decX(buf.decBytes())` with an offset-based slice — no
+   allocation per nested message. Should drive the Buffer redesign.
+2. **Calldata-native runtime path (§5).** Eliminates the
+   calldata→memory copy on external entrypoints. Builds on the same
+   Buffer surface introduced for §6.
+3. **Partial decoders for measured hot paths (§7).** Only if the
+   consumer side has paths that demonstrably need a subset of fields.
+   Adds generator surface; should be driven by data, not preemptive.
+
+Earlier drafts ordered §5 / §6 ahead of §8 because §8 sat under "Phase 3
+Repeated-Field Strategy". In practice §8's inline-primitive half was
+contained Phase 1 work and landed cleanly; the reference-type half is
+also Tier-A contained work and should ship before any of the structural
+items above.
+
+Deferred / dormant:
+
+- **Packed repeated tightening (§4).** Current bench shows no AgentPay
+  path is bottlenecked on `decPacked`. Revisit only when a consumer
+  schema introduces a hot packed-varint path.
 
 Exit criteria:
 
@@ -87,23 +116,33 @@ Exit criteria:
 - User-facing generator failures produce actionable diagnostics.
 - Extension lookup behavior is either narrowed or clearly documented and covered.
 
-### 5. CI and Developer Workflow Efficiency
+### 5. CI and Developer Workflow Efficiency — **partially landed**
 
 Status: planned, medium priority.
 
 Primary tracking: this roadmap and [gas-optimization-plan.md](./gas-optimization-plan.md)
 
-Scope:
+What landed:
+
+- [x] CI regenerates both `test/solidity/src/lib` and
+  `test/solidity/test/bench/new` on every PR and fails on any diff
+  against the checked-in copy. The bench numbers therefore always
+  reflect the current generator/runtime.
+- [x] `importpb=true` and `importpb=false` generation paths both
+  exercised in the integration tests.
+
+Remaining scope:
 
 - Cache Go modules and Foundry artifacts if the cache meaningfully improves CI time without destabilizing builds.
-- Add benchmark diff reporting once the benchmark harness is stable enough to trust in CI.
-- Keep regeneration drift checks and integration coverage aligned with the current generation modes and checked-in artifacts.
+- Add benchmark **diff reporting** PR-over-PR (e.g., a comment with
+  the deltas) once the optimization workstream stabilizes. Distinct
+  from the drift check above, which is already in place.
 
 Exit criteria:
 
 - CI remains deterministic.
 - Caching is only enabled where it is measurably useful.
-- Performance reporting is available once the benchmark harness is ready.
+- Bench diff reporting available when there is a workstream that needs it.
 
 ### 6. Release and Adoption Follow-Up
 

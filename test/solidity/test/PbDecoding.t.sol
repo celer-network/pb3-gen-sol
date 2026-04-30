@@ -143,6 +143,28 @@ contract PbDecodingTest is TestBase {
         this.decodeMsg1(hex"0f");
     }
 
+    function testSkipsUnknownFixedWireTypes() external pure {
+        // Unknown tag 11, wire Fixed64 (0x59 = (11<<3)|1). 8 payload bytes
+        // are skipped, then a known tag 1 (varint, value 7) is decoded.
+        PbMytest.Msg1 memory m = PbMytest.decMsg1(hex"5901020304050607080807");
+        assertEq(uint256(m.f1), 7);
+
+        // Same with wire Fixed32 (0x5d = (11<<3)|5). 4 payload bytes skipped,
+        // then tag 1 = 7.
+        m = PbMytest.decMsg1(hex"5d010203040807");
+        assertEq(uint256(m.f1), 7);
+    }
+
+    function testRejectsTruncatedFixedWireTypes() external {
+        // Unknown tag 11 wire Fixed64 (0x59) but only 4 payload bytes follow.
+        vm.expectRevert();
+        this.decodeMsg1(hex"5901020304");
+
+        // Unknown tag 11 wire Fixed32 (0x5d) but only 2 payload bytes follow.
+        vm.expectRevert();
+        this.decodeMsg1(hex"5d0102");
+    }
+
     function testMsg2RejectsWrongAddressLength() external {
         vm.expectRevert();
         this.decodeMsg2(_loadFixture("msg2_wrong_addr.pb"));

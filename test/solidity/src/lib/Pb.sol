@@ -125,7 +125,12 @@ library Pb {
         }
     }
 
-    // move idx pass current value field, to beginning of next tag or msg end
+    // move idx pass current value field, to beginning of next tag or msg end.
+    // Skips all proto3 wire types so that unknown fields (including types this
+    // generator doesn't otherwise emit, like fixed32 / fixed64 / double / float)
+    // round-trip through forward-compatible decoders without reverting. Group
+    // wire types (StartGroup/EndGroup) are proto2 / deprecated and are not
+    // expected on any proto3 wire — they revert.
     function skipValue(Buffer memory buf, WireType wire) internal pure {
         if (wire == WireType.Varint) {
             decVarint(buf);
@@ -133,8 +138,14 @@ library Pb {
             uint256 len = decVarint(buf);
             buf.idx += len; // skip len bytes value data
             require(buf.idx <= buf.b.length); // avoid overflow
+        } else if (wire == WireType.Fixed64) {
+            buf.idx += 8;
+            require(buf.idx <= buf.b.length); // avoid overflow
+        } else if (wire == WireType.Fixed32) {
+            buf.idx += 4;
+            require(buf.idx <= buf.b.length); // avoid overflow
         } else {
-            revert(); // unsupported wiretype
+            revert(); // unsupported wiretype (StartGroup / EndGroup)
         }
     }
 

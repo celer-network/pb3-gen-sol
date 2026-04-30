@@ -58,6 +58,9 @@ jobs:
       - name: Regenerate Solidity and protobuf fixtures
         run: bash test/generate_sol_pb.sh
 
+      - name: Verify generated Solidity is up to date
+        run: git diff --exit-code -- test/solidity/src/lib
+
       - name: Check formatting
         working-directory: test/solidity
         run: forge fmt --check

@@ -8,7 +8,7 @@
 - Cross-package reference support, including multi-segment proto package names.
 - Separate `Pb.sol` runtime support library.
 - Solidity native type overrides via `google.protobuf.FieldOptions` and `(soltype)`.
-- Foundry-based Solidity regression suite backed by checked-in protobuf fixtures.
+- Foundry-based Solidity regression suite, with binary `.pb` fixtures regenerated from checked-in human-readable `.textpb` sources.
 - Go integration test that builds the plugin and runs `protoc` end to end.
 - Go unit tests covering generator parameter parsing and `soltype` option handling.
 
@@ -147,6 +147,8 @@ The Forge job also installs Go and `protoc` because it regenerates Solidity and 
 - Generated Solidity now targets `pragma solidity >=0.8.0;` and uses the modern `Pb.sol` shared-runtime layout when `importpb=true` is used.
 - Decoder behavior is intentionally stricter for malformed payloads: oversized `uint256` byte strings, wrong-length `address` and `bytes32` fields, truncated varints, and truncated length-delimited values now revert deterministically.
 - Empty top-level messages and empty embedded messages are now accepted instead of failing due to the removed legacy `raw.length > 1` guard.
+- Narrow integer overrides (`uint8`, `uint32`, `uint64` from `(soltype)` or native proto types) silently truncate on-wire values that exceed the target width. The decoder follows Solidity narrow-cast semantics; producers that emit out-of-range values for a narrow field would be observed truncated, not rejected. If your contract treats a narrow field as an authoritative bound, validate it explicitly after decode.
+- Unknown fields with wire types `Fixed32` (4-byte) and `Fixed64` (8-byte) are skipped per the proto3 spec, even though the generator does not emit those types as decoded fields. This keeps older decoders forward-compatible with schemas that add `fixed32` / `fixed64` / `float` / `double` fields under tags the older decoder isn't aware of.
 
 ## Known Gaps
 

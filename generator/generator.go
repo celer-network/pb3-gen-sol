@@ -152,10 +152,6 @@ func (g *Generator) printAtom(v interface{}) {
 	}
 }
 
-// When we want to support multiple .proto and imports, need preprocess to get all definition relationships
-func (g *Generator) Preprocess() {
-	// init text template?
-}
 func (g *Generator) ParseParams() {
 	// only support 2 args for now:
 	// msg=MsgA,msg=MsgB
@@ -197,6 +193,7 @@ func (g *Generator) GenerateAllFiles() {
 			continue
 		}
 		g.Reset() // clear buffer
+		g.indent = "" // and reset indent state, in case a prior generate() left it non-empty
 		g.generate(f)
 		outfn := getSolFile(f.GetPackage()) // file name for generated .sol file
 		g.Response.File = append(g.Response.File, &plugin.CodeGeneratorResponse_File{
@@ -595,8 +592,10 @@ func fixedWidthReader(soltype string) string {
 	return ""
 }
 
-// wiretype string, WireVarint or WireLendel
-// packed ints is handled by getPbDecFunc
+// getWiretype returns the proto wire-type string ("Varint" or "Bytes") for
+// `fieldtype`. Packed-repeated handling is done by `getSolDecodeStr` (which
+// switches to `decPacked` when a field is repeated and varint-typed); this
+// function only reports the underlying scalar's wire type.
 func getWiretype(fieldtype descriptor.FieldDescriptorProto_Type) string {
 	if fieldtype == descriptor.FieldDescriptorProto_TYPE_MESSAGE {
 		return WireLendel

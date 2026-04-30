@@ -10,20 +10,21 @@ interface FsVm {
 
 /**
  * @title Stress benchmark suite
- * @notice Exercises the scratch-array (single-pass over-allocate + shrink)
- *  strategy on shapes that the AgentPay paths in `Decode.t.sol` do not
- *  cover:
+ * @notice Exercises the single-pass scratch-array strategy on shapes the
+ *  AgentPay paths in `Decode.t.sol` do not cover:
  *
- *  - `decMsg2`: four scratch-eligible repeated fields decoded in the same
- *    message (`address`, `address payable`, `uint256`-bytes, `bytes32`),
- *    each with its own per-element-type upper bound.
- *  - `decMsg3`: nested `repeated Msg1` + `repeated Msg2` (reference types
- *    that fall back to `cntTags`) plus inner Msg2's multi-scratch shape on
- *    each element. Stresses the interaction between the two strategies.
+ *  - `decMsg2`: four repeated fields with inline-primitive elements
+ *    (`address`, `address payable`, `uint256`-bytes, `bytes32`) decoded
+ *    in the same message, each with its own per-element-type upper
+ *    bound. Stresses the multi-scratch case for the typed-scratch path.
+ *  - `decMsg3`: nested `repeated Msg1` + `repeated Msg2` (reference
+ *    element types using the typeless `uint256[]` scratch + assembly
+ *    alias) plus inner Msg2's multi-scratch shape on every element.
+ *    Stresses the interaction between the two scratch flavors at depth.
  *
  *  No `Old` paired runtime here — `test.proto` has no legacy snapshot.
- *  The point is to monitor the absolute gas cost on stress shapes so any
- *  future regression on multi-scratch decoders shows up in CI.
+ *  The point is to monitor absolute gas cost so a future regression on
+ *  multi-scratch decoders shows up in CI.
  */
 contract StressBenchTest is BenchBase {
     address private constant VM_ADDRESS = address(uint160(uint256(keccak256("hevm cheat code"))));
@@ -54,9 +55,10 @@ contract StressBenchTest is BenchBase {
     }
 
     // 1210-byte payload, nested. Outer `repeated Msg1` and `repeated Msg2`
-    // are reference types and fall back to `cntTags`. Each inner Msg2
-    // decode pays its own multi-scratch over-allocation (4 arrays sized
-    // from the inner Msg2 payload, not the outer 1210 bytes — important
+    // are reference types and use the typeless `uint256[]` scratch +
+    // assembly alias path. Each inner Msg2 decode pays its own
+    // multi-scratch over-allocation (4 typed-scratch arrays sized from
+    // the inner Msg2 payload, not the outer 1210 bytes — important
     // sanity check that we are not over-allocating from the wrong scope).
     function test_bench_decMsg3_nested() public {
         bytes memory raw = _load("msg3.pb");

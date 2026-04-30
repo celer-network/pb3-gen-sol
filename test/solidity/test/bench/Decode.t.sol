@@ -69,12 +69,23 @@ contract DecodeBenchTest is BenchBase {
         uint256 g1 = gasleft();
         _measure("decConditionalPay_old", raw.length, g0, g1);
 
-        // Sanity: decoded fields match.
         assertEq(pay.payTimestamp, 1700000000);
         assertEq(pay.src, SRC);
         assertEq(pay.dest, DEST);
-        assertEq(pay.conditions.length, 3);
         assertEq(pay.payResolver, PAY_RESOLVER);
+        assertEq(pay.conditions.length, 3);
+        // Validate Condition[] element contents (HASH_LOCK + DEPLOYED_CONTRACT
+        // pair). With §8b's typeless-scratch + assembly mstore + alias path,
+        // a stale offset or wrong-width pointer store would produce wrong
+        // structs here even when the length matched.
+        assertEq(uint256(pay.conditions[0].conditionType), 0); // HASH_LOCK
+        assertEq(pay.conditions[0].hashLock, HASH_LOCK);
+        assertEq(uint256(pay.conditions[1].conditionType), 1); // DEPLOYED_CONTRACT
+        assertEq(pay.conditions[1].deployedContractAddress, address(0xabcd));
+        assertEq(uint256(uint8(pay.conditions[1].argsQueryOutcome[0])), 1);
+        assertEq(uint256(pay.conditions[2].conditionType), 1); // DEPLOYED_CONTRACT
+        assertEq(pay.conditions[2].deployedContractAddress, address(0xef01));
+        assertEq(uint256(uint8(pay.conditions[2].argsQueryOutcome[0])), 42);
     }
 
     function test_bench_decConditionalPay_new() public {
@@ -87,8 +98,16 @@ contract DecodeBenchTest is BenchBase {
         assertEq(pay.payTimestamp, 1700000000);
         assertEq(pay.src, SRC);
         assertEq(pay.dest, DEST);
-        assertEq(pay.conditions.length, 3);
         assertEq(pay.payResolver, PAY_RESOLVER);
+        assertEq(pay.conditions.length, 3);
+        assertEq(uint256(pay.conditions[0].conditionType), 0); // HASH_LOCK
+        assertEq(pay.conditions[0].hashLock, HASH_LOCK);
+        assertEq(uint256(pay.conditions[1].conditionType), 1); // DEPLOYED_CONTRACT
+        assertEq(pay.conditions[1].deployedContractAddress, address(0xabcd));
+        assertEq(uint256(uint8(pay.conditions[1].argsQueryOutcome[0])), 1);
+        assertEq(uint256(pay.conditions[2].conditionType), 1); // DEPLOYED_CONTRACT
+        assertEq(pay.conditions[2].deployedContractAddress, address(0xef01));
+        assertEq(uint256(uint8(pay.conditions[2].argsQueryOutcome[0])), 42);
     }
 
     // -------------------------------------------------------------------------
@@ -168,6 +187,12 @@ contract DecodeBenchTest is BenchBase {
         assertEq(init.openDeadline, 17_000_000);
         assertEq(init.disputeTimeout, 600);
         assertEq(init.initDistribution.distribution.length, 2);
+        // AccountAmtPair[] element contents — typeless-scratch path for the
+        // embedded TokenDistribution.distribution.
+        assertEq(init.initDistribution.distribution[0].account, ACCOUNT_A);
+        assertEq(init.initDistribution.distribution[0].amt, 1_000_000);
+        assertEq(init.initDistribution.distribution[1].account, ACCOUNT_B);
+        assertEq(init.initDistribution.distribution[1].amt, 2_000_000);
     }
 
     function test_bench_decPaymentChannelInitializer_new() public {
@@ -180,6 +205,10 @@ contract DecodeBenchTest is BenchBase {
         assertEq(init.openDeadline, 17_000_000);
         assertEq(init.disputeTimeout, 600);
         assertEq(init.initDistribution.distribution.length, 2);
+        assertEq(init.initDistribution.distribution[0].account, ACCOUNT_A);
+        assertEq(init.initDistribution.distribution[0].amt, 1_000_000);
+        assertEq(init.initDistribution.distribution[1].account, ACCOUNT_B);
+        assertEq(init.initDistribution.distribution[1].amt, 2_000_000);
     }
 
     // -------------------------------------------------------------------------
@@ -247,6 +276,10 @@ contract DecodeBenchTest is BenchBase {
         assertEq(s.channelId, CHANNEL_ID);
         assertEq(s.seqNum, 99);
         assertEq(s.settleBalance.length, 2);
+        assertEq(s.settleBalance[0].account, ACCOUNT_A);
+        assertEq(s.settleBalance[0].amt, 1_500_000);
+        assertEq(s.settleBalance[1].account, ACCOUNT_B);
+        assertEq(s.settleBalance[1].amt, 2_500_000);
     }
 
     function test_bench_decCooperativeSettleInfo_new() public {
@@ -259,6 +292,10 @@ contract DecodeBenchTest is BenchBase {
         assertEq(s.channelId, CHANNEL_ID);
         assertEq(s.seqNum, 99);
         assertEq(s.settleBalance.length, 2);
+        assertEq(s.settleBalance[0].account, ACCOUNT_A);
+        assertEq(s.settleBalance[0].amt, 1_500_000);
+        assertEq(s.settleBalance[1].account, ACCOUNT_B);
+        assertEq(s.settleBalance[1].amt, 2_500_000);
     }
 
     // -------------------------------------------------------------------------
@@ -283,7 +320,13 @@ contract DecodeBenchTest is BenchBase {
         _measure("decResolvePayRequest+decConditionalPay_old", raw.length, g0, g1);
 
         assertEq(req.hashPreimages.length, 3);
+        // hashPreimages are 32-byte big-endian uint256 encodings: 0xaaaa, 0xbbbb, 0xcccc.
+        assertEq(req.hashPreimages[0], abi.encodePacked(uint256(0xaaaa)));
+        assertEq(req.hashPreimages[1], abi.encodePacked(uint256(0xbbbb)));
+        assertEq(req.hashPreimages[2], abi.encodePacked(uint256(0xcccc)));
         assertEq(pay.conditions.length, 3);
+        assertEq(pay.conditions[0].hashLock, HASH_LOCK);
+        assertEq(pay.conditions[1].deployedContractAddress, address(0xabcd));
     }
 
     function test_bench_decResolvePayRequestThenConditionalPay_new() public {
@@ -295,7 +338,12 @@ contract DecodeBenchTest is BenchBase {
         _measure("decResolvePayRequest+decConditionalPay_new", raw.length, g0, g1);
 
         assertEq(req.hashPreimages.length, 3);
+        assertEq(req.hashPreimages[0], abi.encodePacked(uint256(0xaaaa)));
+        assertEq(req.hashPreimages[1], abi.encodePacked(uint256(0xbbbb)));
+        assertEq(req.hashPreimages[2], abi.encodePacked(uint256(0xcccc)));
         assertEq(pay.conditions.length, 3);
+        assertEq(pay.conditions[0].hashLock, HASH_LOCK);
+        assertEq(pay.conditions[1].deployedContractAddress, address(0xabcd));
     }
 
     // -------------------------------------------------------------------------
@@ -323,7 +371,19 @@ contract DecodeBenchTest is BenchBase {
         _measure("decSignedSimplexState+decSimplex_old", raw.length, g0, g1);
 
         assertEq(wrap.sigs.length, 2);
+        // Repeated `bytes` sigs go through the typeless-scratch path. Validate
+        // length and a content byte for each so a wrong-pointer mstore in the
+        // dispatch line would surface here.
+        assertEq(wrap.sigs[0].length, 65);
+        assertEq(uint256(uint8(wrap.sigs[0][0])), 0xaa);
+        assertEq(uint256(uint8(wrap.sigs[0][64])), 0xaa);
+        assertEq(wrap.sigs[1].length, 65);
+        assertEq(uint256(uint8(wrap.sigs[1][0])), 0xbb);
+        assertEq(uint256(uint8(wrap.sigs[1][64])), 0xbb);
         assertEq(s.channelId, CHANNEL_ID);
+        assertEq(s.pendingPayIds.payIds.length, 2);
+        assertEq(s.pendingPayIds.payIds[0], PAY_ID_1);
+        assertEq(s.pendingPayIds.payIds[1], PAY_ID_2);
     }
 
     function test_bench_decSignedSimplexStateThenSimplex_new() public {
@@ -335,6 +395,15 @@ contract DecodeBenchTest is BenchBase {
         _measure("decSignedSimplexState+decSimplex_new", raw.length, g0, g1);
 
         assertEq(wrap.sigs.length, 2);
+        assertEq(wrap.sigs[0].length, 65);
+        assertEq(uint256(uint8(wrap.sigs[0][0])), 0xaa);
+        assertEq(uint256(uint8(wrap.sigs[0][64])), 0xaa);
+        assertEq(wrap.sigs[1].length, 65);
+        assertEq(uint256(uint8(wrap.sigs[1][0])), 0xbb);
+        assertEq(uint256(uint8(wrap.sigs[1][64])), 0xbb);
         assertEq(s.channelId, CHANNEL_ID);
+        assertEq(s.pendingPayIds.payIds.length, 2);
+        assertEq(s.pendingPayIds.payIds[0], PAY_ID_1);
+        assertEq(s.pendingPayIds.payIds[1], PAY_ID_2);
     }
 }

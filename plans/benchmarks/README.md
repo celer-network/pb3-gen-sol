@@ -19,10 +19,14 @@ The bench has two flavors of test contract under
     Single-`mload` `decVarint`, no `cntTags` unknown-tag guard,
     two-allocation `decPacked`. Already deployed.
   - **`*New`** — what `pb3-gen-sol` emits today against the same proto
-    schemas. Hardened-fast `decVarint`, fixed-width readers, `unchecked`
-    loop counters, single-pass scratch arrays for inline-primitive
-    repeated fields. As of the latest baseline 30–48% faster than `Old`
-    on every measured path.
+    schemas. Hardened-fast `decVarint`, fixed-width readers
+    (`decAddress` / `decBytes32` / `decUint256`), `unchecked` loop
+    counters, and single-pass scratch arrays for *every* repeated
+    length-delimited field — typed scratch for inline primitives
+    (`bytes32`/`address`/`uint256`), typeless `uint256[]` scratch +
+    assembly alias for reference types (`bytes`/`string`/embedded
+    struct). `cntTags` is removed from the runtime. As of the latest
+    baseline 36–58% faster than `Old` on every measured path.
 
   The `Old` half is intentionally frozen so each delta has a stable
   comparison point.
@@ -32,10 +36,13 @@ The bench has two flavors of test contract under
 
   - `decMsg2`: four scratch-eligible repeated fields
     (`address` / `address payable` / `uint256`-bytes / `bytes32`),
-    stresses the multi-scratch over-allocation case.
-  - `decMsg3`: nested `repeated Msg1` + `repeated Msg2`, stresses the
-    interaction between `cntTags` (used for reference-element repeated
-    fields) and scratch arrays (used inside each nested Msg2).
+    stresses the multi-scratch over-allocation case for inline
+    primitives.
+  - `decMsg3`: nested `repeated Msg1` + `repeated Msg2`. The outer
+    repeats are reference-typed (typeless scratch + assembly alias);
+    each nested `Msg2` decode pays its own multi-scratch allocation
+    sized to the *inner* payload. Stresses the interaction between
+    the two scratch flavors at depth.
 
   No paired `Old` runtime here — `test.proto` has no legacy snapshot.
   Numbers are kept as absolute baselines so a future regression on

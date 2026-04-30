@@ -106,46 +106,72 @@ decisions can calibrate against the right intuition. See
   `cntTags`, `decBytes`, `decPacked`, and the generator-emitted
   `cnts[N]++`. Pure micro-optimization that delivered another 14–16%
   per path.
-- **Over-allocation for repeated reference-typed arrays is a trap.**
-  Solidity zero-initializes each over-allocated slot of `bytes[]`,
-  `string[]`, or `Foo[]` (struct) to a fresh sub-allocation. The first
-  `cntTags` removal attempt blew up `decConditionalPay` by +9 kgas
-  before the mixed strategy (over-alloc only for inline-primitive
-  element types) was put in place.
-- **`cntTags` removal helps where the element is `bytes32` /
-  `address` / `uint256` (no zero-init cost per slot).** On AgentPay
-  paths that touch `PayIdList`, this delivered another 14–20% on top
-  of the loop-counter cleanup.
+- **Over-allocation for repeated reference-typed arrays is a trap if
+  you use the actual array type.** Solidity zero-initializes each
+  over-allocated slot of `bytes[]`, `string[]`, or `Foo[]` (struct) to
+  a fresh sub-allocation. A naïve `cntTags` removal that allocated as
+  the actual array type blew up `decConditionalPay` by +9 kgas — the
+  zero-init cost dominated the savings.
+- **The fix is a typeless `uint256[]` scratch + assembly mstore + an
+  aliasing cast at the end.** Each scratch slot is then just a 32-byte
+  zero word, no sub-allocation. The dispatch decodes into a typed
+  temp local, mstores the pointer/value into the scratch, and at the
+  end aliases the scratch to the target array type via assembly
+  assignment. Works uniformly for `bytes`, `string`, and embedded
+  messages.
+- **The full `cntTags` removal compounded much more than estimated.**
+  The pre-pass cost was load-bearing on long paths because each
+  iteration still did decKey + skipValue work, and nested decoders
+  repeated the cost. Removing it across the board (after the
+  inline-primitive half) saved another 24.7% aggregate vs §8a.
 
 The cumulative effect: starting from a +1.4% regression vs the
-hand-tuned legacy runtime, the new runtime ended at **−34.7% aggregate
-across the seven measured paths** (30–48% per path), without weakening
-any malformed-input revert.
+hand-tuned legacy runtime, the new runtime ended at **−50.8% aggregate
+across the seven measured paths** (36–58% per path), without weakening
+any malformed-input revert. `cntTags` is now dead and removed from the
+runtime.
 
 ## Current Hotspots
 
-These are the main sources of avoidable gas in the current design.
+After Phase 1 + Phase 3 §8 in full, the remaining avoidable gas sits
+in two structural places. Constant-factor scrubbing inside the runtime
+loops is essentially exhausted.
 
-- `decVarint` is on the hottest path of nearly every decode operation.
-  - It is used by `decKey`, primitive numeric fields, length prefixes, `cntTags`, and packed repeated values.
-  - The current byte-by-byte safe loop is correct, but the baseline measurement attributes the bulk of the +1.4% aggregate regression to it. Closing the gap likely requires rewriting it.
+- **`bytes calldata` inputs decoded through `bytes memory` APIs.**
+  Downstream contracts often receive protobuf payloads as
+  `bytes calldata`. The runtime decodes from `bytes memory raw`, which
+  forces an early calldata→memory copy on every external entrypoint.
+  Addressed by Tier B §5 (calldata-native runtime).
+- **Nested length-delimited submessages are copied before decoding.**
+  Pattern today: `decX(buf.decBytes())`. That allocates a fresh
+  `bytes` object — length word + 32-byte stride memory copy — for
+  every embedded message. On AgentPay paths every entrypoint has
+  nested decodes (ConditionalPay → Conditions, SimplexPaymentChannel
+  → PayIdList, TokenDistribution → AccountAmtPair[]), so this
+  compounds. Addressed by Tier B §6 (zero-copy nested submessage
+  decoding via offset slicing).
+- **Generated decoders always fully materialize the whole struct.**
+  Some consumer paths only need a subset of fields. Addressed by
+  Tier C §7 (partial decoders) — only justified if a measured hot
+  path on the consumer side demands it.
 
-- `bytes calldata` inputs are decoded through `bytes memory` APIs.
-  - Downstream contracts already take external calldata payloads.
-  - The current runtime decodes from `bytes memory raw`, which forces early copying.
-- Nested length-delimited submessages are copied and reparsed.
-  - Pattern today: `decX(buf.decBytes())`.
-  - That allocates a fresh `bytes` object for every embedded message before decoding it.
-- Repeated length-delimited fields use a counting prepass.
-  - `cntTags` scans the whole message once to size arrays, then the decoder scans it again to fill them.
-  - This is especially relevant for signatures, conditions, pay ID lists, signed simplex states, and similar repeated payloads.
-- Packed repeated varints still allocate to the byte-length upper bound.
-  - The extra copy is gone, but `decPacked` still reserves `len` slots up front and then shrinks in place after repeated `decVarint` calls.
-  - This is a secondary optimization target now, not the first one.
-- Fixed-width protobuf bytes fields go through generic `decBytes` allocation.
-  - `address`, `bytes32`, and `uint256` backed by bytes are decoded as a freshly allocated `bytes` object, then converted.
-- Generated decoders always fully materialize the whole struct.
-  - Some downstream code paths only need a subset of fields but still pay to decode everything.
+What is no longer a hotspot:
+
+- ~~`decVarint` byte-by-byte loop overhead~~ — fixed in §1.
+- ~~`bytes` allocation for fixed-width fields~~ — fixed in §2;
+  `address` / `bytes32` / bytes-backed `uint256` now read directly
+  via `decAddress` / `decBytes32` / `decUint256`.
+- ~~Per-arithmetic overflow checks in hot loops~~ — fixed in §3
+  via `unchecked` blocks.
+- ~~`cntTags` double-pass on repeated fields~~ — fixed in §8;
+  every repeated length-delimited field now uses single-pass
+  scratch + shrink (typed scratch for inline primitives, typeless
+  `uint256[]` scratch + alias for reference types). `cntTags`
+  removed from the runtime entirely.
+- ~~`decPacked` second-allocation + copy~~ — fixed pre-Phase-1;
+  single allocation + in-place shrink. Further packed-repeated
+  tightening is dormant — the AgentPay benchmarks show packed
+  paths are not material.
 
 ## Representative Message Paths
 

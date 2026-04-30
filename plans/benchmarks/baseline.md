@@ -281,10 +281,11 @@ count is 3 per field, so `amts` is the worst case (172 unused slots);
 the path still decodes in 88 gas/byte.
 
 `decMsg3_nested` decodes 1,210 bytes of nested `repeated Msg1` and
-`repeated Msg2`. The outer repeated fields are reference types and use
-`cntTags`; each inner `Msg2` decode pays its own scratch-array cost
-sized to the *inner* payload, not the outer 1,210 bytes — important
-sanity check that the upper bound is taken from the right scope.
+`repeated Msg2`. The outer repeated fields are reference types and now
+use the typeless `uint256[]` scratch + assembly alias (no `cntTags`).
+Each inner `Msg2` decode pays its own multi-scratch allocation sized to
+the *inner* payload, not the outer 1,210 bytes — important sanity check
+that the upper bound is taken from the right scope.
 
 ## Reproduction
 

@@ -12,6 +12,33 @@
 - Go integration test that builds the plugin and runs `protoc` end to end.
 - Go unit tests covering generator parameter parsing and `soltype` option handling.
 
+## Why protobuf for Solidity?
+
+If your off-chain stack already speaks protobuf — multiple producer
+languages writing the same signed bytes, schema evolution managed via
+tag numbers — `pb3-gen-sol` lets on-chain Solidity contracts consume
+the same payloads without hand-rolling ABI structs or duplicating the
+schema.
+
+The trade-off vs hand-rolled Solidity ABI:
+
+- **Language- and platform-neutral.** Any client (Go, Rust, TS, Java,
+  etc.) can produce `.pb` bytes that decode on EVM (this repo), non-EVM
+  chains (CosmWasm, Move, Solana programs with protobuf libraries), or
+  any off-chain verifier — all from one schema.
+- **Native schema evolution.** Adding fields with new tag numbers is
+  safe; older decoders skip unknown tags per the proto3 spec. ABI has
+  no native skip-unknown — adding a field shifts every offset and
+  breaks every existing decoder.
+- **Smaller wire size on sparse messages.** Proto3 elides zero-valued
+  fields entirely; ABI always encodes every field.
+
+ABI decode is cheaper in gas on most shapes. On L1 mainnet the
+wire-size advantage roughly cancels the decode-gas penalty; on L2
+rollups protobuf's smaller wire size wins on virtually every shape. See
+[test/sol/bench/benchmark.md](test/sol/bench/benchmark.md) for the
+full numbers and per-path breakdown.
+
 ## Supported Types
 
 Native proto types:

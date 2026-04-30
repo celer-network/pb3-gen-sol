@@ -2,9 +2,11 @@
 
 `Bench.t.sol` measures decode gas on the AgentPay schemas
 ([`test/proto/bench/chain.proto`](../../proto/bench/chain.proto) +
-[`test/proto/bench/entity.proto`](../../proto/bench/entity.proto)) — the
-de-facto reference consumer for `pb3-gen-sol`. For each representative
-path two tests run:
+[`test/proto/bench/entity.proto`](../../proto/bench/entity.proto)) —
+copied verbatim from
+[`agent-pay-contracts`](https://github.com/celer-network/agent-pay-contracts),
+the de-facto reference consumer for `pb3-gen-sol`. For each
+representative path two tests run:
 
 - `pb_decX` decodes the proto-encoded `.pb` fixture via the generated
   runtime.
@@ -59,13 +61,14 @@ scalars as varints; ABI uses fixed 32-byte slot widths in the head and
 offset-tail layout for dynamic fields. Smaller wire size means cheaper
 calldata at submission time.
 
-**Decode gas.** ABI is 2.2–10.8× faster on these shapes. ABI's wire
-format is essentially a pre-laid-out memory layout — decoding is mostly
-pointer arithmetic over fixed-width slots. Protobuf's wire format is
-length-prefix-delimited with per-field varint tags, so the decoder
-pays per-field metadata overhead (tag varint + dispatch + length-prefix
-varint + per-type validation) regardless of how much actual data each
-field carries.
+**Decode gas.** ABI decode costs 2.2–10.8× less gas than the protobuf
+decoder on these shapes. ABI's wire format is essentially a
+pre-laid-out memory layout — decoding is mostly pointer arithmetic
+over fixed-width slots. Protobuf's wire format is length-prefix-
+delimited with per-field varint tags, so the decoder pays per-field
+metadata overhead (tag varint + dispatch + length-prefix varint +
+per-type validation) regardless of how much actual data each field
+carries.
 
 The two effects move in opposite directions, and neither dominates
 universally. The 2.2–10.8× spread in the ratio reflects each message's
@@ -80,14 +83,14 @@ overhead with no amortization, and ABI just reads inline head slots).
 The total cost per call is `decode_gas + payload_bytes × calldata_gas_per_byte`.
 
 **L1 mainnet** (16 gas per non-zero calldata byte): the two encodings
-come out roughly comparable on most paths — ABI's 2–11× faster decode
-is largely offset by its 2.4–7.6× larger wire size. For
+come out roughly comparable on most paths — ABI's 2–11× decode-gas
+advantage is largely offset by its 2.4–7.6× larger wire size. For
 mostly-fixed-width-field messages like `CooperativeWithdrawInfo`, ABI
 wins by a few thousand gas per call (~8.1k vs ~3.7k). For
 bulk-bytes-wrapped messages like `SignedSimplexState`, protobuf wins
-(~8.0k vs ~10.9k) because its wire-size advantage outweighs the decode
-penalty. For mixed-shape messages like `ConditionalPay`, the totals
-come within a few percent of each other (~30k either way).
+(~8.0k vs ~10.9k) because its wire-size advantage outweighs the
+decode-gas penalty. For mixed-shape messages like `ConditionalPay`,
+the totals come within a few percent of each other (~30k either way).
 
 **L2 rollups** have a much higher effective per-byte cost because
 calldata is posted to L1 for data availability. The 0.13–0.42×
@@ -123,10 +126,10 @@ solve:
   inflating the wire size of sparse messages.
 
 If the off-chain side is already a multi-language system using
-protobuf end-to-end (AgentPay's case), the on-chain decoder's gas
-cost is the price of keeping a single consistent message definition
-across the stack — usually worth more in maintenance and correctness
-than it costs in gas.
+protobuf end-to-end ([AgentPay's case](https://github.com/celer-network/agent-pay-contracts)),
+the on-chain decoder's gas cost is the price of keeping a single
+consistent message definition across the stack — usually worth more
+in maintenance and correctness than it costs in gas.
 
 If you control both sides and only target Solidity, ABI is the simpler
 default.

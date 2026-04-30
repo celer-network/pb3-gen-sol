@@ -34,13 +34,6 @@ library Pb {
         return buf.idx < buf.b.length;
     }
 
-    // decode current field number and wiretype
-    function decKey(Buffer memory buf) internal pure returns (uint256 tag, WireType wiretype) {
-        uint256 v = decVarint(buf);
-        tag = v / 8;
-        wiretype = WireType(v & 7);
-    }
-
     // read varint from current buf idx, move buf.idx to next read, return the int value
     function decVarint(Buffer memory buf) internal pure returns (uint256 v) {
         bytes memory bb = buf.b;
@@ -71,11 +64,15 @@ library Pb {
                 idx++;
                 v |= (b & 0x7F) << (i * 7);
                 if (b < 0x80) {
-                    // Bytes 0..8 cover bits 0..62 and are unconstrained by
-                    // the protobuf uint64 bound. The 10th byte (i == 9) can
-                    // only contribute bit 63, so its low 7 bits must be 0
-                    // or 1. Hoisting this check to the success path means
-                    // it runs once per varint instead of once per byte.
+                    // Bytes 0..8 cover bits 0..62. The 10th byte (i == 9)
+                    // can only contribute bit 63 to keep the value within
+                    // the protobuf uint64 range, so its low 7 bits must be
+                    // 0 or 1. This guards every decVarint consumer
+                    // uniformly — keys, length prefixes, and field values
+                    // — so that malformed structural varints do not
+                    // acquire a defined on-chain interpretation. Hoisted
+                    // to the success path so it runs once per varint
+                    // instead of once per byte.
                     if (i == 9) require(b < 2);
                     buf.idx = idx;
                     return v;

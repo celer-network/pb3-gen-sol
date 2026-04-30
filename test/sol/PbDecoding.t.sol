@@ -151,10 +151,30 @@ contract PbDecodingTest is TestBase {
     function testRejectsOversizedVarint() external {
         // Tag 2 is uint64 (varint, wire 0): 0x10. Then a 10-byte varint:
         // 9 continuation bytes 0x80 followed by terminating byte 0x02. The
-        // 10th byte's low 7 bits encode 2, which would shift to bit 64 and
-        // overflow the protobuf uint64 range. The runtime must reject it
-        // rather than silently truncating to 0.
+        // 10th byte's low 7 bits encode 2, which shifts to bit 64 and
+        // overflows the protobuf uint64 range. decVarint rejects it.
         bytes memory raw = bytes.concat(hex"10", hex"808080808080808080", hex"02");
+        vm.expectRevert();
+        this.decodeMsg1(raw);
+    }
+
+    function testRejectsOversizedKeyVarint() external {
+        // 10-byte key varint that would mask down to (1 << 3) | 0 = tag 1
+        // / Varint and then look like a valid Msg1 with f1 = 7. Without
+        // the strict 10th-byte guard the decoder would reinterpret these
+        // bytes as a different on-chain message than canonical decoders
+        // see; with the guard it reverts.
+        bytes memory raw = bytes.concat(hex"88808080808080808002", hex"07");
+        vm.expectRevert();
+        this.decodeMsg1(raw);
+    }
+
+    function testRejectsOversizedLengthPrefix() external {
+        // Tag 4 is `bytes f4` (LengthDelim): 0x22. Then a 10-byte length
+        // varint that would mask down to 0 and consume zero bytes. The
+        // strict guard rejects the malformed length prefix instead of
+        // silently treating the field as empty.
+        bytes memory raw = bytes.concat(hex"22", hex"80808080808080808002");
         vm.expectRevert();
         this.decodeMsg1(raw);
     }

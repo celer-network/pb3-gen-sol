@@ -84,7 +84,10 @@ func TestGeneratorFixtures(t *testing.T) {
 		"function decBytes32(Buffer memory buf)",
 		"function decUint256(Buffer memory buf)",
 		// 10th-byte uint64-range guard on decVarint, hoisted to the
-		// terminator path so it runs once per varint instead of per byte.
+		// success path so it runs once per varint instead of per byte.
+		// Applies uniformly to keys, length prefixes, and field values
+		// so that malformed structural varints do not acquire a defined
+		// on-chain interpretation.
 		"if (i == 9) require(b < 2);",
 	} {
 		if !strings.Contains(pbRuntime, want) {

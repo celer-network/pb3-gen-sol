@@ -43,13 +43,30 @@ rm -f "$output_dir"/*.sol
 protoc_include_dir="$(find_protoc_include)"
 go build -o "$plugin_path" "$repo_root"
 
+# Compile unit and bench protos in separate protoc invocations so that
+# each compile only sees one `(soltype)` extension declaration.
+# `test/proto/unit/test.proto` and `test/proto/bench/entity.proto` both
+# define `extend google.protobuf.FieldOptions { string soltype = 1001; }`
+# in different packages (`mytest.soltype` vs `entity.soltype`) but on the
+# same field number 1001. Compiling them together makes protoc warn that
+# extension number 1001 collides on `google.protobuf.FieldOptions`. The
+# duplication is intentional: each schema is self-contained (`entity.proto`
+# is copied verbatim from `agent-pay-contracts`), and at runtime no
+# `FieldOptions` instance carries both extensions. Splitting the compile
+# silences the cosmetic warning without coupling the schemas.
 protoc \
     --plugin=protoc-gen-sol="$plugin_path" \
     --proto_path="$proto_unit_dir" \
+    --proto_path="$protoc_include_dir" \
+    --sol_out=importpb=true:"$output_dir" \
+    test.proto a.proto b.proto
+
+protoc \
+    --plugin=protoc-gen-sol="$plugin_path" \
     --proto_path="$proto_bench_dir" \
     --proto_path="$protoc_include_dir" \
     --sol_out=importpb=true:"$output_dir" \
-    test.proto a.proto b.proto chain.proto entity.proto
+    chain.proto entity.proto
 
 # Unit textpb fixtures: encode each msg<N>.textpb under mytest.Msg<N>; encode
 # b.textpb under b.B.

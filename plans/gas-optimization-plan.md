@@ -1,11 +1,18 @@
 # pb3-gen-sol Gas Optimization Plan
 
-This plan is explicitly post-modernization work. It should start only after these preconditions are in place:
+This plan is explicitly post-modernization work. The preconditions for
+starting it were:
 
 - the Solidity runtime has the correctness fixes in place,
 - the generated output format is stable,
 - Foundry is the default test runner,
-- and CI can enforce gas regression checks.
+- and CI enforces benchmark fixture drift (the `bench/new/` half is
+  regenerated and diff-checked on every PR, so the baseline numbers
+  always reflect the current generator/runtime).
+
+Full automated benchmark-diff reporting in CI is a separate follow-up
+(see [Measurement](#measurement)) — not a precondition for landing
+isolated optimizations.
 
 ## Goal
 
@@ -25,7 +32,7 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [x] The modernization prerequisites are in place: the runtime hardening fixes landed, Foundry is the default Solidity test runner, and CI already checks regeneration and Forge validation.
 - [x] The first obvious packed-field win already landed: `decPacked` now uses a single allocation plus in-place length shrink instead of allocating and copying twice.
 - [x] Additional negative-path guardrails were added for malformed packed varints, invalid wire types, and empty repeated nested messages.
-- [x] Foundry benchmark harness landed at [test/solidity/test/bench/](../test/solidity/test/bench/), pairing the current runtime against a frozen `agent-pay-contracts` snapshot. Baselines captured in [benchmarks/baseline.md](./benchmarks/baseline.md).
+- [x] Foundry benchmark harness landed at [test/solidity/test/bench/](../test/solidity/test/bench/), pairing the current runtime against a frozen `agent-pay-contracts` snapshot plus stress shapes for multi-scratch and nested decoders. Baselines captured in [benchmarks/baseline.md](./benchmarks/baseline.md). CI regenerates `bench/new/` and fails on drift.
 - [x] Hardened-fast `decVarint` landed 2026-04-29. Every path is now 12–14% faster than the legacy `Old` runtime; +1.4% aggregate regression replaced with a −12.7% aggregate improvement.
 - [x] Fixed-width readers (`decAddress` / `decBytes32` / `decUint256`) landed 2026-04-29. Cumulative −18.9% aggregate vs `Old`; every path 16–25% faster than legacy.
 - [x] Runtime loop `unchecked` cleanup landed 2026-04-29. Cumulative −31.7% aggregate vs `Old`; every path 30–37% faster than legacy.
@@ -33,22 +40,41 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [ ] Open follow-up: single-pass for reference-typed repeated fields via `uint256[]` scratch + assembly cast. Estimated upside ~500–1,500 gas per path that doesn't already benefit. Tracked in §8 above.
 - [ ] Other Phase 2 / 3 levers (calldata-native runtime, partial decoders) remain available — evaluate against the current baseline before scoping; headroom is shrinking.
 
-## Findings From The 2026-04 Baseline
+## Lessons From The Phase 1–§8 Workstream
 
-The first measurement against the frozen `agent-pay-contracts` runtime reshapes
-this plan in concrete ways. See [benchmarks/baseline.md](./benchmarks/baseline.md) for the table.
+The Phase 1 + Phase 3 §8 work overshot pre-implementation estimates by a
+wide margin. Worth recording the surprises so future optimization
+decisions can calibrate against the right intuition. See
+[benchmarks/baseline.md](./benchmarks/baseline.md) for the actual numbers.
 
-- **The overall gap is small (~1.4% across all paths, max +2.78%).** The runtime hardening tax is real but bounded.
-- **`decConditionalPay` carries most of the regression** (+1,594 gas, +2.78%). Its repeated nested submessages and varint-heavy primitive fields compound the per-byte `decVarint` cost. The end-to-end `ResolvePayRequest → ConditionalPay` path inherits the same gap (+1,680 gas). Treat these as the headline targets.
-- **Two paths are slightly *faster* on the new runtime** (`decSimplexPaymentChannel`, `decSignedSimplexState + decSimplex`). The deltas are tiny and most likely incidental code-shape effects from the recent generator cleanups.
-- **Fixed-width reader savings are likely smaller than originally hypothesized.** A back-of-envelope count for `decConditionalPay` puts the per-allocate-and-discard `bytes` cost at roughly 50–60 gas per fixed-width field, versus per-byte `decVarint` overhead at roughly 10–25 gas per *byte* applied to ~100 varint reads. The varint overhead dominates.
-- **`cntTags` is paying for two full passes.** The pre-pass counts tags and skips values; the actual decode reads the same data again. For messages with many fields and nested submessages, this doubles every varint cost. Phase 3 §8 still applies, but it's worth keeping in mind that `decVarint` improvements compound here.
+- **Solidity-level `bytes` index access (`bb[idx]`) costs ~30–40 gas
+  per byte.** Replacing `bb[buf.idx]` with inline `byte(0, mload(...))`
+  after an explicit `idx < len` guard saved 12.5% on `decConditionalPay`
+  alone — well past the original "close the gap" target.
+- **Per-allocation overhead in `decBytes` is larger than the byte-copy
+  itself.** Fixed-width readers that bypass the intermediate `bytes`
+  allocation entirely saved another 5–13% per path on top of the
+  `decVarint` rewrite.
+- **`unchecked` blocks on bounded loop counters compound across the
+  runtime** because the same loop pattern fires in `decVarint`,
+  `cntTags`, `decBytes`, `decPacked`, and the generator-emitted
+  `cnts[N]++`. Pure micro-optimization that delivered another 14–16%
+  per path.
+- **Over-allocation for repeated reference-typed arrays is a trap.**
+  Solidity zero-initializes each over-allocated slot of `bytes[]`,
+  `string[]`, or `Foo[]` (struct) to a fresh sub-allocation. The first
+  `cntTags` removal attempt blew up `decConditionalPay` by +9 kgas
+  before the mixed strategy (over-alloc only for inline-primitive
+  element types) was put in place.
+- **`cntTags` removal helps where the element is `bytes32` /
+  `address` / `uint256` (no zero-init cost per slot).** On AgentPay
+  paths that touch `PayIdList`, this delivered another 14–20% on top
+  of the loop-counter cleanup.
 
-These findings keep the suggested execution order (varint first, then fixed-width readers), but recalibrate expectations:
-
-- `decVarint` rework is "close the gap" (target: net-zero or better vs `Old`), not "step change."
-- Fixed-width readers are still worthwhile but should be sized at low single-digit-percent improvement on heavy paths, not double-digit.
-- Any work that touches `cntTags` (now or in Phase 3) should re-benchmark against this baseline because varint cost flows through it.
+The cumulative effect: starting from a +1.4% regression vs the
+hand-tuned legacy runtime, the new runtime ended at **−34.7% aggregate
+across the seven measured paths** (30–48% per path), without weakening
+any malformed-input revert.
 
 ## Current Hotspots
 
@@ -90,18 +116,19 @@ These cover nested messages, repeated fields, signatures, opaque bytes blobs, an
 
 ## Measurement
 
-- [x] Foundry benchmark suite for representative decode paths.
+- [x] Foundry benchmark suite for representative decode paths (`Decode.t.sol`).
 - [x] Decode-only gas captured for each path; payload byte counts recorded alongside.
 - [x] Old-vs-new comparison against the frozen `agent-pay-contracts` runtime included in the same suite.
+- [x] Stress benchmark for multi-scratch (`decMsg2`) and nested (`decMsg3`) shapes (`Stress.t.sol`).
 - [x] Baseline numbers stored in [benchmarks/baseline.md](./benchmarks/baseline.md) for delta tracking.
-- [x] Baseline captured before any `decVarint` rewrite so safety and gas can be compared.
+- [x] CI regenerates `test/solidity/test/bench/new` on every PR and fails the build on any diff against the checked-in copy. The bench numbers therefore always reflect the current generator/runtime.
 - [ ] `abi.encode` / `abi.decode` comparison harness for logically equivalent structs (deferred — not blocking).
-- [ ] CI reporting for benchmark diffs once the harness stabilizes (deferred — needs a few more PRs to settle).
+- [ ] CI **diff reporting** of bench numbers PR-over-PR (e.g., posting a comment with the deltas). Distinct from the drift check above; deferred until the optimization workstream stabilizes.
 
 ## Suggested Success Criteria
 
-- [ ] Every optimization PR preserves all decode correctness tests.
-- [ ] Every optimization PR shows a measurable benchmark improvement on at least one representative hot path.
+- [ ] Every optimization step preserves all decode correctness tests.
+- [ ] Every optimization step shows a measurable benchmark improvement on at least one representative hot path.
 - [ ] Do not merge changes that increase gas on the major ledger and pay-resolution paths unless they unlock a larger follow-up improvement.
 - [ ] Target meaningful constant-factor wins, not parity with ABI.
 
@@ -332,17 +359,17 @@ Why this matters:
 
 ## Change Tracking
 
-This work does not need to be split into separate PR-shaped slices in the planning document.
+This work does not need to be split into separately planned review slices in the planning document.
 
 - Progress should be tracked through the execution order above and the git commit history.
-- The benchmark harness should still land early in the implementation sequence, even if the final delivery is grouped into a single PR.
+- The benchmark harness should still land early in the implementation sequence, even if the final delivery is grouped only at the end.
 - Each substantive optimization step should remain measurable and reversible in commit history so gas and correctness regressions can be isolated.
 
-## Validation Checklist For Each Optimization PR
+## Validation Checklist For Each Optimization Step
 
 - [ ] protobuf decode outputs remain byte-for-byte compatible with existing fixtures.
 - [ ] malformed-input tests still fail deterministically.
-- [ ] Foundry benchmark numbers are attached to the PR.
+- [ ] Foundry benchmark numbers are captured alongside the corresponding commit(s).
 - [ ] no unexplained regression on the representative ledger and pay-resolution paths.
 - [ ] generated output diff is reviewed for readability and maintainability.
 

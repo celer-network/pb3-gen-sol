@@ -202,16 +202,43 @@ observed total.
   approaching. Each subsequent change should be a deliberate
   measurement-driven decision, not automatic.
 
+## Stress baseline (Stress.t.sol)
+
+Single-runtime measurements on shapes that the AgentPay paths above do
+not exercise. No `Old` paired runtime — `test.proto` has no legacy
+snapshot. These numbers are tracked as absolute baselines so a future
+regression on multi-scratch decoders surfaces in CI.
+
+| Path                  | Bytes |     New |
+| --------------------- | ----: | ------: |
+| `decMsg2_multiScratch` | 351 |  30,847 |
+| `decMsg3_nested`       | 1,210 | 218,107 |
+
+`decMsg2_multiScratch` exercises the four-scratch case directly:
+`addrs` / `addrPayables` (`address`, min wire 22 → 15 slot bound),
+`amts` (`uint256`-bytes, min wire 2 → 175 slot bound),
+`hashes` (`bytes32`, min wire 34 → 10 slot bound). Actual occurrence
+count is 3 per field, so `amts` is the worst case (172 unused slots);
+the path still decodes in 88 gas/byte.
+
+`decMsg3_nested` decodes 1,210 bytes of nested `repeated Msg1` and
+`repeated Msg2`. The outer repeated fields are reference types and use
+`cntTags`; each inner `Msg2` decode pays its own scratch-array cost
+sized to the *inner* payload, not the outer 1,210 bytes — important
+sanity check that the upper bound is taken from the right scope.
+
 ## Reproduction
 
 ```bash
 cd test/solidity
-forge test --match-path 'test/bench/Decode.t.sol' -vv \
-  | grep -E '_(old|new) [0-9]'
+forge test --match-path 'test/bench/*.t.sol' -vv \
+  | grep -E '_(old|new|multiScratch|nested) [0-9]'
 ```
 
 Numbers are deterministic across runs and across solc 0.8.30 / 0.8.33.
 
-After landing the next Phase 1 PR, replace the "Latest" table above
-with the new numbers and move the previous "Latest" down as a dated
-historical row.
+When the runtime or generator changes meaningfully, replace the
+"Latest" tables above with fresh measurements and demote the previous
+"Latest" to a dated historical row. CI regenerates `bench/new/` and
+fails on drift, so a runtime change that forgets to refresh the
+benchmark fixtures will be caught before merge.

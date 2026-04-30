@@ -30,38 +30,49 @@ Exit criteria:
 - [x] CI regenerates `bench/new/` and fails on drift.
 - [x] §8 second half (reference-type single-pass) landed; `cntTags` removed.
 
-### 2. Structural Runtime Optimization — **open**
+### 2. Structural Runtime Optimization — **evaluated, closed**
 
-Status: planned, medium priority. The two largest remaining levers
-share a common precondition: a Buffer redesign that supports both
-calldata-backed reads and offset-based slicing into a parent buffer.
+Status: §6 (zero-copy nested submessage decoding via `decSubBuffer`)
+was prototyped end-to-end on 2026-04-29 and rejected after measurement.
+Aggregate AgentPay improvement was only −1.4%, with one path regressing
++3% and a stress path regressing +2.2%. The Buffer struct expansion
+plus `decX → _decX` forwarder pattern impose a per-call fixed cost
+that doesn't pay off on paths with few or zero nested decodes —
+shallow-schema consumers would pay net regression. Stop criterion #1
+("remaining ideas only produce marginal gains relative to added
+complexity") triggered.
 
-Primary tracking: [gas-optimization-plan.md](./gas-optimization-plan.md)
+Primary tracking: [gas-optimization-plan.md § Tier B Evaluation](./gas-optimization-plan.md#tier-b-evaluation).
 
-Recommended order:
+Closed items:
 
-1. **Zero-copy nested submessage decoding (§6).** Biggest remaining
-   upside on AgentPay because every entrypoint has nested decodes.
-   Replace `decX(buf.decBytes())` with an offset-based slice — no
-   allocation per nested message. Should drive the Buffer redesign.
-2. **Calldata-native runtime path (§5).** Eliminates the
-   calldata→memory copy on external entrypoints. Builds on the same
-   Buffer surface introduced for §6.
-3. **Partial decoders for measured hot paths (§7).** Only if the
-   consumer side has paths that demonstrably need a subset of fields.
-   Adds generator surface; should be driven by data, not preemptive.
+- ~~Zero-copy nested submessage decoding (§6)~~ — prototyped, rejected.
+- ~~Calldata-native runtime path (§5)~~ — not pursued (Tier B as a
+  whole rejected; §5 alone would have an even worse upside-to-complexity
+  ratio than §6).
 
-Deferred / dormant:
+Dormant items (open in principle, no active work planned):
 
+- **Partial decoders for measured hot paths (§7).** Only if the
+  consumer side has paths that demonstrably need a subset of fields.
+  Adds generator surface; should be driven by data, not preemptive.
 - **Packed repeated tightening (§4).** Current bench shows no AgentPay
   path is bottlenecked on `decPacked`. Revisit only when a consumer
   schema introduces a hot packed-varint path.
 
-Exit criteria:
+When to reopen this workstream:
 
-- Any structural runtime change is justified by representative benchmark improvements.
-- Runtime correctness and wire compatibility remain unchanged.
-- Complexity stays bounded to the paths that actually need it.
+- A future consumer schema introduces materially different shapes
+  (much deeper nesting than AgentPay, or a hot path bottlenecked on
+  large-payload calldata copies) where the §6 / §5 economics would
+  flip. Re-measure against fresh baselines before any structural
+  rewrite.
+
+Exit criteria (achieved by the closure decision):
+
+- [x] Any structural runtime change is justified by representative benchmark improvements — §6 was not, so it was reverted.
+- [x] Runtime correctness and wire compatibility remain unchanged — final shipping state is the post-§8b runtime.
+- [x] Complexity stays bounded to the paths that actually need it — Tier B's per-call overhead would have spread complexity across all paths for marginal aggregate gain.
 
 ### 3. Testing Depth and Regression Coverage
 

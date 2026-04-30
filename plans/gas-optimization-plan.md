@@ -38,38 +38,12 @@ The plan below reflects the current repo state after the hardening, Foundry migr
 - [x] Runtime loop `unchecked` cleanup landed 2026-04-29. Cumulative −31.7% aggregate vs `Old`; every path 30–37% faster than legacy.
 - [x] `cntTags` single-pass for inline-primitive repeated fields (Phase 3 §8, first half) landed 2026-04-29. Cumulative −34.7% aggregate vs `Old`; every path 30–48% faster than legacy.
 - [x] Typeless-scratch single-pass for reference-typed repeated fields (Phase 3 §8, second half) landed 2026-04-29. `cntTags` removed from the runtime entirely. Cumulative **−50.8% aggregate vs `Old`**; every path 36–58% faster than legacy.
+- [~] Tier B (zero-copy nested submessage decoding §6 + calldata-native runtime §5) **prototyped, measured, and rejected** 2026-04-29. §6 implemented end-to-end; aggregate AgentPay improvement was only −1.4% with one path regressing +3% and a stress path regressing +2.2%. The Buffer struct expansion plus the `decX → _decX` forwarder pattern impose a fixed per-call cost (~50–800 gas) that only amortizes on paths with multiple nested decodes; shallow-schema consumers would pay net regression. Stop criterion #1 ("remaining ideas only produce marginal gains relative to added complexity") triggered. See [Tier B Evaluation](#tier-b-evaluation) below.
 
-## Open Work, Prioritized
+## Open Work
 
-This is the recommended order to take on what's left. The execution
-order at the bottom of this document is the canonical to-do list; the
-buckets below explain why.
-
-### ~~Tier A — close out the contained wins~~ — landed 2026-04-29
-
-§8 second half landed. The `uint256[]` scratch + assembly mstore + final
-aliasing cast for reference-typed repeated fields was much higher upside
-than estimated (~3–17 kgas saved per affected path, not 0.5–1.5 kgas) —
-the `cntTags` pre-pass had been costing more than the pre-§8a numbers
-suggested because each iteration still paid a non-trivial decKey +
-skipValue cycle, and nested decoders compounded the cost.
-
-### Tier B — structural wins, do behind a Buffer redesign
-
-These two are different consumers of the same idea: stop copying bytes
-that are already addressable. Worth designing the new Buffer surface
-once, then applying it to both.
-
-- **§6: zero-copy nested submessage decoding.** Biggest remaining
-  upside on AgentPay because every entrypoint has nested decodes.
-  Replace `decX(buf.decBytes())` with an offset-based slice into the
-  parent buffer, no allocation. Risk: the runtime currently assumes a
-  freshly-owned `bytes memory` per nested call; the new shape needs
-  careful boundary checking.
-- **§5: calldata-native runtime.** Saves the calldata→memory copy on
-  every external entrypoint. Lower upside per call than §6 (one copy
-  per top-level decode vs many per nested decode), but compounds with
-  §6 once they share a Buffer redesign.
+The optimization workstream is **closed at −50.8% aggregate vs `Old`**.
+The remaining items are tracked but not actively pursued:
 
 ### Tier C — measure first, only if data justifies
 
@@ -85,6 +59,90 @@ once, then applying it to both.
 - **§9 / §10: keep opaque bytes opaque, prefer partial decode adoption
   in agent-pay-contracts.** These are choices made in the consuming
   contract, not the generator. Useful but out of scope for this repo.
+
+## Tier B Evaluation
+
+§6 (zero-copy nested submessage decoding via `decSubBuffer`) was
+prototyped end-to-end on 2026-04-29 and rejected after measurement.
+Recording the data so future optimization work can calibrate against it.
+
+### What was implemented
+
+- `Buffer` struct extended from 2 fields (`idx`, `b`) to 3
+  (`idx`, `end`, `b`). The new `end` field bounds a sub-buffer
+  independently of `b.length`.
+- `decSubBuffer(Buffer memory) returns (Buffer memory)` runtime helper
+  that reads a length-prefix and returns a Buffer pointing into the
+  parent's `b` at `[idx, idx+len)`. No allocation, no copy.
+- Generator emitted two functions per message: a `decX(bytes memory)`
+  back-compat forwarder and an internal `_decX(Pb.Buffer memory)` that
+  ran the actual decode body. Nested message fields used
+  `_decX(buf.decSubBuffer())` instead of `decX(buf.decBytes())`.
+- All fixed-width readers and `decBytes` / `decPacked` / `skipValue`
+  updated to bound on `buf.end` instead of `buf.b.length`.
+
+### Measurement results
+
+Vs the post-§8b baseline:
+
+| Path                                       |  §8b → §6  | Δ        |
+| ------------------------------------------ | ---------- | -------- |
+| `decConditionalPay`                        | 27,278 → 26,663 | −2.3% |
+| `decSimplexPaymentChannel`                 | 15,376 → 15,124 | −1.6% |
+| `decPaymentChannelInitializer`             | 13,895 → 13,353 | −3.9% |
+| `decCooperativeWithdrawInfo`               |  6,994 →  7,202 | **+3.0%** |
+| `decCooperativeSettleInfo`                 | 11,066 → 10,931 | −1.2% |
+| `decResolvePayRequest + decConditionalPay` | 34,744 → 34,335 | −1.2% |
+| `decSignedSimplexState + decSimplex`       | 21,733 → 21,670 | −0.3% |
+| **AgentPay aggregate**                     | 131,086 → 129,278 | **−1.4%** |
+| `decMsg2_multiScratch` (stress)            | 30,847 → 31,526 | **+2.2%** |
+| `decMsg3_nested` (stress)                  | 184,875 → 183,177 | −0.9% |
+
+### Why it didn't work out
+
+- **Per-call fixed cost dominated the savings on shallow schemas.**
+  The Buffer struct expansion (3 words instead of 2) plus the
+  `decX → _decX` forwarder hop plus the over-allocation upper bound
+  shifting from `raw.length` to `(buf.end - buf.idx)` together added
+  ~50–800 gas per top-level call. On paths with few or zero nested
+  decodes, there's nothing to amortize this against.
+- **Per-nested-decode savings were ~100–180 gas, not the higher
+  estimate.** `decBytes` for a 30-byte Condition costs ~95 gas (alloc
+  + 32-byte stride copy + `fromBytes` setup); `decSubBuffer` costs
+  ~70 gas (read len + write 4 fields). Net saving ~25 gas/decode was
+  closer to reality than the ~140 gas/decode ballpark.
+- **decMsg2_multiScratch regressed by 2.2%.** Msg2 has no nested
+  message fields — the only repeated fields are inline-primitive
+  (already on the §8a fast path). The +679 gas regression was pure
+  Buffer-overhead cost. A pb3-gen-sol consumer with shallow schemas
+  would pay this on every decode without compensation.
+- **§5 (calldata-native) would compound but is even more complex.**
+  Saving the calldata→memory copy on entry is ~50 gas per external
+  call. To capture it cleanly, the Buffer would need to support both
+  calldata and memory backings — likely a duplicated decoder API or
+  major assembly restructure.
+
+### Decision
+
+Revert §6, do not pursue §5. Lock in the runtime at the post-§8b
+state (−50.8% aggregate vs `Old`, every path 36–58% faster than the
+legacy hand-tuned runtime). The complexity-to-gain ratio of further
+structural work is not justified at this point on the existing
+benchmark set.
+
+### When to revisit
+
+If a future consumer materially changes the benchmark profile —
+specifically:
+
+- A schema with much deeper nesting than AgentPay (e.g., 10+ levels
+  of submessages per decode) where §6's per-nested savings would
+  amortize against many calls.
+- An external entry point that decodes very large `bytes calldata`
+  payloads where §5's avoided memory copy could be material.
+
+— then re-evaluate against fresh measurements. The branch with the
+prototyped §6 is preserved in git history for reference.
 
 ## Lessons From The Phase 1–§8 Workstream
 
@@ -195,14 +253,24 @@ These cover nested messages, repeated fields, signatures, opaque bytes blobs, an
 - [x] Baseline numbers stored in [benchmarks/baseline.md](./benchmarks/baseline.md) for delta tracking.
 - [x] CI regenerates `test/solidity/test/bench/new` on every PR and fails the build on any diff against the checked-in copy. The bench numbers therefore always reflect the current generator/runtime.
 - [ ] `abi.encode` / `abi.decode` comparison harness for logically equivalent structs (deferred — not blocking).
-- [ ] CI **diff reporting** of bench numbers PR-over-PR (e.g., posting a comment with the deltas). Distinct from the drift check above; deferred until the optimization workstream stabilizes.
+- [ ] CI **diff reporting** of bench numbers PR-over-PR (e.g., posting a comment with the deltas). Distinct from the drift check above; not implemented before workstream closure. Reopen if a future optimization push needs PR-level delta visibility beyond the existing drift check.
 
-## Suggested Success Criteria
+## Success Criteria — applied throughout the workstream
 
-- [ ] Every optimization step preserves all decode correctness tests.
-- [ ] Every optimization step shows a measurable benchmark improvement on at least one representative hot path.
-- [ ] Do not merge changes that increase gas on the major ledger and pay-resolution paths unless they unlock a larger follow-up improvement.
-- [ ] Target meaningful constant-factor wins, not parity with ABI.
+These criteria gated each landed optimization step. Recorded here as
+satisfied outcomes; they were the bar each PR met.
+
+- [x] Every optimization step preserved all decode correctness tests
+  (32/32 → 34/34 throughout).
+- [x] Every optimization step showed a measurable benchmark improvement
+  on at least one representative hot path; numbers captured in
+  [benchmarks/baseline.md](./benchmarks/baseline.md).
+- [x] No change increased gas on the major ledger / pay-resolution
+  paths. The §6 prototype that would have done so was reverted before
+  shipping (see [Tier B Evaluation](#tier-b-evaluation)).
+- [x] Targeted meaningful constant-factor wins; reached −50.8% aggregate
+  vs the legacy hand-tuned runtime, well past the original "close the
+  gap" target.
 
 ## Already Landed
 
@@ -304,68 +372,68 @@ Until either of those happens, leave this item dormant.
 
 ## Phase 2: Medium-Risk Structural Improvements
 
-These changes can move the needle more, but they affect core runtime design and should be done one at a time behind benchmark gates.
+§5 and §6 below were collectively evaluated as Tier B, prototyped on
+§6 first, measured, and **rejected**. Stop criterion #1 triggered:
+the per-call fixed cost of the Buffer redesign and forwarder pattern
+outweighed the zero-copy savings on shallow-schema paths, and the
+AgentPay aggregate gain was only −1.4% with two paths regressing. Full
+data and rationale: see [Tier B Evaluation](#tier-b-evaluation).
 
-### 5. Introduce a calldata-native runtime path
+§7 (partial decoders) is dormant — open in principle, no measured hot
+path on the consumer side currently justifies the added generator
+surface.
 
-- [ ] Prototype a calldata decoder runtime alongside the memory runtime.
-- [ ] Evaluate whether the public generated API can expose:
-  - [ ] `decMsg(bytes calldata raw)` directly, or
-  - [ ] an internal calldata buffer API plus thin wrappers.
-- [ ] Use the benchmark suite to measure wrapper messages and nested message paths.
+### 5. Introduce a calldata-native runtime path — **rejected**
 
-Why this matters:
+Status: not pursued. Tier B as a whole was rejected; §5 alone would
+have had an even worse upside-to-complexity ratio than §6 (calldata
+support requires either a duplicated decoder API or significant
+assembly restructure to avoid losing the `bytes memory` API surface,
+in exchange for ~50 gas saved per external entrypoint).
 
-- The current downstream contracts often receive protobuf payloads as `bytes calldata`.
-- Decoding through a memory-only runtime pays an early copy before parsing begins.
+When to reopen: a future consumer with very large `bytes calldata`
+entrypoints where the avoided memory copy would be material.
 
-Expected impact:
+### 6. Avoid copying nested submessages before decoding — **rejected**
 
-- Medium to large improvement on external-entry decode paths.
+Status: prototyped end-to-end on 2026-04-29, measured at −1.4%
+aggregate with `decCooperativeWithdrawInfo` regressing +3% and
+`decMsg2_multiScratch` regressing +2.2%. Reverted. The `Buffer`
+struct expansion (3 fields instead of 2) plus the
+`decX → _decX` forwarder pattern imposed a per-call fixed cost of
+~50–800 gas; per-nested-decode savings were only ~25 gas, far below
+the rough estimate.
 
-Risk:
+When to reopen: a consumer schema with much deeper nesting than
+AgentPay (e.g., 10+ levels of submessages per decode) where the
+zero-copy savings would amortize against many calls per top-level
+entrypoint.
 
-- Solidity calldata ergonomics are more restrictive than memory; the API needs a careful design pass.
+### 7. Generate specialized partial decoders for hot paths — **dormant**
 
-### 6. Avoid copying nested submessages before decoding
+Status: open in principle, not actively pursued. Adds generator
+surface and per-path generated code; should be driven by a measured
+hot path on the consumer side that demonstrably needs only a subset
+of fields. No such path has been identified in AgentPay.
 
-- [ ] Prototype a zero-copy nested decode path.
-- [ ] Instead of `decX(buf.decBytes())`, evaluate an API that passes offsets or slices into the original payload.
-- [ ] Preserve the current correctness guarantees for malformed lengths and boundaries.
+Scope sketch (if reopened):
 
-Why this matters:
+- Identify downstream functions that only use a subset of fields.
+- Add optional codegen support for partial decoders such as
+  `decConditionalPayForResolution`, `decSimplexPaymentChannelForSettle`,
+  or other narrowly scoped variants justified by benchmark data.
+- Only decode fields that are actually consumed by the target path.
 
-- Nested messages are a dominant cost in `ConditionalPay`, `TokenTransfer`, `TokenDistribution`, `SignedSimplexStateArray`, and similar structures.
-
-Expected impact:
-
-- Large improvement on nested-message-heavy paths.
-
-Risk:
-
-- This is a meaningful runtime redesign and should not be mixed with unrelated refactors.
-
-### 7. Generate specialized partial decoders for hot paths
-
-- [ ] Identify downstream functions that only use a subset of fields.
-- [ ] Add optional codegen support for partial decoders such as:
-  - [ ] `decConditionalPayForResolution`
-  - [ ] `decSimplexPaymentChannelForSettle`
-  - [ ] other narrowly scoped variants justified by benchmark data.
-- [ ] Only decode fields that are actually consumed by the target path.
-
-Why this matters:
+Why this could matter (if data justifies it):
 
 - Full struct materialization is convenient but expensive.
-- Several contract paths do not need every field in the protobuf message.
-
-Expected impact:
-
-- Medium to large improvement on the specific hot paths that adopt partial decoding.
+- Several contract paths do not need every field in the protobuf
+  message.
 
 Risk:
 
-- More generated surface area and more maintenance burden. This should be driven by measured hot paths, not blanket generation.
+- More generated surface area and more maintenance burden. This must
+  be driven by measured hot paths, not blanket generation.
 
 ## Phase 3: Repeated-Field Strategy Improvements
 
@@ -465,10 +533,12 @@ re-prioritized by upside × risk against the current
 - [x] 4. Apply small runtime loop cleanups that show clear benchmark wins.
 - [x] 5. `cntTags` single-pass for inline-primitive repeated fields.
 - [x] 6. Single-pass for reference-typed repeated fields. `cntTags` retired from the runtime.
-- [ ] 7. **Prototype zero-copy nested submessage decoding (§6).** Biggest remaining structural upside on agent-pay (every entrypoint has nested decodes). Requires a Buffer redesign — risky.
-- [ ] 8. **Prototype a calldata-native runtime path (§5).** Builds on the same Buffer redesign as zero-copy nested. Saves the initial calldata→memory copy on every external entrypoint.
-- [ ] 9. If measured hot paths justify, pursue partial decoders (§7).
-- [ ] 10. Tighten packed repeated decoding (§4) only if a schema beyond the AgentPay surface demands it. The current bench shows packed paths are not material on the representative paths.
+- [~] 7. Zero-copy nested submessage decoding (§6) — prototyped, measured at −1.4% aggregate with two paths regressing, **rejected**. See [Tier B Evaluation](#tier-b-evaluation).
+- [~] 8. Calldata-native runtime path (§5) — **not pursued**. Tier B as a whole was rejected; §5 alone would have an even worse upside-to-complexity ratio than §6.
+- [ ] 9. If measured hot paths justify, pursue partial decoders (§7) — **dormant**.
+- [ ] 10. Tighten packed repeated decoding (§4) — **dormant** (current bench shows packed paths not material on AgentPay).
+
+**Workstream closed.** The runtime ships at the post-§8b state.
 
 ## Change Tracking
 
@@ -478,21 +548,36 @@ This work does not need to be split into separately planned review slices in the
 - The benchmark harness should still land early in the implementation sequence, even if the final delivery is grouped only at the end.
 - Each substantive optimization step should remain measurable and reversible in commit history so gas and correctness regressions can be isolated.
 
-## Validation Checklist For Each Optimization Step
+## Validation Checklist — applied to each landed step
 
-- [ ] protobuf decode outputs remain byte-for-byte compatible with existing fixtures.
-- [ ] malformed-input tests still fail deterministically.
-- [ ] Foundry benchmark numbers are captured alongside the corresponding commit(s).
-- [ ] no unexplained regression on the representative ledger and pay-resolution paths.
-- [ ] generated output diff is reviewed for readability and maintainability.
+This checklist gated every PR in the workstream. Recorded as a final
+record rather than a live to-do.
 
-## Stop Criteria
+- [x] Decode outputs stayed byte-for-byte compatible with existing fixtures throughout (`bench/old` snapshot is the immutable comparison; CI drift-checks `bench/new`).
+- [x] Malformed-input tests kept failing deterministically across §1–§8 (truncated varints, oversized `uint256`, malformed packed varints, invalid wire-type enums, wrong-length `address`/`bytes32`).
+- [x] Foundry benchmark numbers captured for every step in [benchmarks/baseline.md](./benchmarks/baseline.md), including the dated historical rows.
+- [x] No unexplained regression on the AgentPay paths once the workstream closed. The §6 prototype that did regress two paths was reverted before shipping (see [Tier B Evaluation](#tier-b-evaluation)).
+- [x] Generated-output diffs reviewed; the integration test asserts on specific generated shapes to catch unexpected drift.
 
-Stop when one of these becomes true.
+## Stop Criteria — outcome
 
-- [ ] The remaining ideas only produce marginal gains relative to added complexity.
-- [ ] The major runtime costs are dominated by protobuf semantics that cannot be improved without changing the wire format.
-- [ ] The benchmarked savings are no longer material for real ledger and pay-resolution transactions.
+The workstream stopped 2026-04-29 because **stop criterion #1
+triggered**: the Tier B prototype showed that the next available
+optimization (§6 zero-copy nested) only produced marginal aggregate
+gain (−1.4%) at meaningful added complexity (Buffer struct expansion,
+two-flavor decoder API, generator restructure), and one path
+regressed +3%. See [Tier B Evaluation](#tier-b-evaluation).
+
+The other criteria did not trigger:
+
+- Criterion #2 ("dominated by wire-format-immutable protobuf
+  semantics"): not applicable — there is still room in principle, just
+  not justified by the benchmark.
+- Criterion #3 ("benchmarked savings no longer material for real
+  ledger / pay-resolution paths"): partially relevant — `decConditional
+  Pay` is at 27 kgas (53% below `Old`), so further percent-point savings
+  are smaller in absolute terms, but the runtime is not yet at a hard
+  floor.
 
 ## Practical Expectation
 

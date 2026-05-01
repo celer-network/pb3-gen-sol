@@ -1,0 +1,28 @@
+pay_timestamp: 1700000000
+src: '\021\021\021\021\021\021\021\021\021\021\021\021\021\021\021\021\021\021\021\021'
+dest: '\042\042\042\042\042\042\042\042\042\042\042\042\042\042\042\042\042\042\042\042'
+conditions {
+  condition_type: HASH_LOCK
+  hash_lock: '\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104\104'
+}
+conditions {
+  condition_type: DEPLOYED_CONTRACT
+  deployed_contract_address: '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\253\315'
+  args_query_outcome: '\001'
+}
+conditions {
+  condition_type: DEPLOYED_CONTRACT
+  deployed_contract_address: '\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\357\001'
+  args_query_outcome: '\052'
+}
+transfer_func {
+  logic_type: BOOLEAN_AND
+  max_transfer {
+    receiver {
+      amt: '\017\102\100'
+    }
+  }
+}
+resolve_deadline: 17000000
+resolve_timeout: 600
+pay_resolver: '\063\063\063\063\063\063\063\063\063\063\063\063\063\063\063\063\063\063\063\063'
